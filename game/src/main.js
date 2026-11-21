@@ -123,6 +123,8 @@ function frame(now) {
     hp: Math.round(state.player.hp),
     mission: state.mission.idx,
     missionActive: state.mission.active,
+    parcels: state.stats.parcels,
+    heli: !!state.heli,
     inCar: state.player.car !== null,
     x: Math.round(state.player.x),
     y: Math.round(state.player.y),
@@ -154,18 +156,40 @@ window.__game = {
 };
 
 if (shotName) {
-  // Screenshot mode: stage the scene synchronously, paint one frame, stop.
+  // Screenshot mode: stage the scene synchronously, then keep repainting it.
+  // The repaint loop matters: a resize (e.g. the capture tool's viewport
+  // override) resets the canvas and wipes a one-off paint, so a single
+  // render can come out as a blank frame. The scene itself is frozen —
+  // stepGame is never called again — so every repaint is the same frame.
   const staged = stageShot(shotName, state, stepGame);
   state.screen = staged.screen;
-  updateAim();
-  render(state, ctx, { w: canvas.width, h: canvas.height });
-  statusEl.textContent = JSON.stringify({
-    screen: state.screen, cash: state.cash, stars: state.stars,
-    hp: Math.round(state.player.hp), mission: state.mission.idx,
-    missionActive: state.mission.active, inCar: state.player.car !== null,
-    x: Math.round(state.player.x), y: Math.round(state.player.y),
-    gang: state.gang.length, cops: state.cops.length,
-  });
+  const paintShot = () => {
+    updateAim();
+    render(state, ctx, { w: canvas.width, h: canvas.height });
+    statusEl.textContent = JSON.stringify({
+      screen: state.screen, cash: state.cash, stars: state.stars,
+      hp: Math.round(state.player.hp), mission: state.mission.idx,
+      missionActive: state.mission.active, inCar: state.player.car !== null,
+      x: Math.round(state.player.x), y: Math.round(state.player.y),
+      gang: state.gang.length, cops: state.cops.length,
+    });
+  };
+  paintShot();
+  window.addEventListener('resize', paintShot);
+  // Point the crosshair at something real: the last gangster in a combat
+  // shot, otherwise at the player (a zero-length aim line is invisible).
+  // Without this the mouse sits at 0,0 and a stray aim line streaks to the
+  // top-left corner of the frame.
+  {
+    const p = state.player;
+    const camX = clamp(p.x - canvas.width / 2, 0, Math.max(0, state.city.size - canvas.width));
+    const camY = clamp(p.y - canvas.height / 2, 0, Math.max(0, state.city.size - canvas.height));
+    const aim = state.gang.length ? state.gang[0] : p;
+    input.mouseX = aim.x - camX;
+    input.mouseY = aim.y - camY;
+  }
+  const loop = () => { paintShot(); requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
   window.__shotReady = true;
 } else {
   requestAnimationFrame(frame);

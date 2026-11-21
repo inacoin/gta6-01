@@ -4,7 +4,7 @@
 import { CFG, MODELS } from './config.js';
 import { buildCity, roadAt, snapRoad, collideBuildings, onRoad } from './city.js';
 import { mulberry32, pick, range, int, chance, clamp, dist2, angleTo, angleDiff } from './rng.js';
-import { updateMission, missionState } from './missions.js';
+import { updateMission, missionState, MISSIONS } from './missions.js';
 
 export function createGame(seed = 7) {
   const city = buildCity(seed);
@@ -23,7 +23,7 @@ export function createGame(seed = 7) {
     lastCrime: -999,
     banner: '',
     bannerT: 0,
-    stats: { kills: 0, thefts: 0, shots: 0, missions: 0, driven: 0 },
+    stats: { kills: 0, thefts: 0, shots: 0, missions: 0, driven: 0, parcels: 0 },
     player: {
       x: start.x, y: start.y + 40, angle: -Math.PI / 2,
       hp: CFG.playerHp, armor: CFG.playerArmor,
@@ -35,8 +35,10 @@ export function createGame(seed = 7) {
     peds: [],
     cops: [],
     gang: [],
+    heli: null, // police helicopter circling at 4-5 stars
     bullets: [],
     pickups: [],
+    parcels: city.parcels.map((p) => ({ ...p, taken: false })),
     particles: [],
     mission: missionState(0),
     autosaveT: 0,
@@ -159,11 +161,36 @@ function wantedUpkeep(state, dt) {
   const cars = state.cops.filter((c) => c.kind === 'car').length;
   if (foot < wantFoot && state.rng() < dt * 0.8) spawnCop(state, 'foot');
   if (cars < wantCars && state.rng() < dt * 0.5) spawnCop(state, 'car');
-  // Heat cools when nobody is watching and no crime just happened.
-  const anyNear = state.cops.some((c) => dist2(c.x, c.y, state.player.x, state.player.y) < 420 * 420);
+  // At 4-5 stars a police helicopter joins the hunt and watches from above.
+  if (state.stars >= 4 && !state.heli) {
+    state.heli = { x: state.player.x, y: state.player.y - 320, rotor: 0 };
+    state.banner = 'Helikopter polisi mengawasimu dari udara!';
+    state.bannerT = 4;
+  }
+  if (state.stars < 3) state.heli = null;
+  // Heat cools when nobody is watching and no crime just happened — but the
+  // helicopter's eye in the sky counts as being watched.
+  const anyNear = state.cops.some((c) => dist2(c.x, c.y, state.player.x, state.player.y) < 420 * 420) || !!state.heli;
   const rate = anyNear || state.clock - state.lastCrime < 4 ? CFG.heatDecaySeen : CFG.heatDecay;
   state.heat = clamp(state.heat - rate * dt, 0, 100);
   state.stars = CFG.starsFor(state.heat);
+}
+
+function stepHeli(state, dt) {
+  const h = state.heli;
+  if (!h) return;
+  const p = state.player;
+  h.rotor += dt * 25;
+  // Circle the player at ~260px, one slow orbit.
+  const a = state.clock * 0.45;
+  const tx = p.x + Math.cos(a) * 260;
+  const ty = p.y + Math.sin(a) * 260;
+  const d = Math.hypot(tx - h.x, ty - h.y);
+  if (d > 4) {
+    const sp = Math.min(520, d * 2);
+    h.x += ((tx - h.x) / d) * sp * dt;
+    h.y += ((ty - h.y) / d) * sp * dt;
+  }
 }
 
 function stepPlayer(state, input, dt) {
@@ -230,7 +257,13 @@ function stepPlayer(state, input, dt) {
     p.x = hit.x; p.y = hit.y;
   }
   if (input.enter) {
-    const car = nearestCar(state, p.x, p.y, 64);
+    // Mission cars (id >= 500: the hot Flecha, the taxi) take priority over
+    // passing traffic — the job needs that exact car, not whatever is nearest.
+    let car = null;
+    for (const c of state.cars) {
+      if (c.id >= 500 && dist2(p.x, p.y, c.x, c.y) < 64 * 64) { car = c; break; }
+    }
+    car = car || nearestCar(state, p.x, p.y, 64);
     if (car) {
       if (car.traffic && car.driver) {
         // Driver bails and runs; the car is yours now.
@@ -380,15 +413,21 @@ function stepCops(state, dt) {
       const hit = collideBuildings(state.city, car.x, car.y, 22);
       car.x = hit.x; car.y = hit.y;
       cop.x = car.x; cop.y = car.y; cop.angle = car.angle;
+      if (cop.ramT > 0) cop.ramT -= dt;
       if (d < 46) {
-        // Ram: shove the player's car and hurt the player a little.
-        if (pcar) {
-          pcar.hp -= 6;
-          pcar.speed *= 0.7;
-          burst(state, p.x, p.y, '#f39c12', 4);
-          state.events.push('crash');
-        } else {
-          hurtPlayer(state, 10);
+        // Ram: shove the player's car and hurt the player a little. The
+        // damage has a cooldown — without it a cop car sitting on top of
+        // the player would melt the car in under a second.
+        if (!cop.ramT || cop.ramT <= 0) {
+          if (pcar) {
+            pcar.hp -= 6;
+            pcar.speed *= 0.7;
+            burst(state, p.x, p.y, '#f39c12', 4);
+            state.events.push('crash');
+          } else {
+            hurtPlayer(state, 10);
+          }
+          cop.ramT = 0.9;
         }
         car.speed *= 0.4;
       }
@@ -497,6 +536,18 @@ function stepPickups(state) {
       state.events.push('pickup');
     }
   }
+  // Carmen's hidden parcels: $150 each, tracked in the stats.
+  for (const pc of state.parcels) {
+    if (!pc.taken && dist2(p.x, p.y, pc.x, pc.y) < 34 * 34) {
+      pc.taken = true;
+      state.cash += CFG.parcelReward;
+      state.stats.parcels++;
+      state.banner = `Paket Carmen ditemukan! (${state.stats.parcels}/8) +$${CFG.parcelReward}`;
+      state.bannerT = 3;
+      state.events.push('pickup');
+      burst(state, pc.x, pc.y, '#f1c40f', 8);
+    }
+  }
 }
 
 export function shoot(state, wx, wy) {
@@ -538,6 +589,7 @@ export function stepGame(state, input, dt) {
   stepTraffic(state, dt);
   stepPeds(state, dt);
   stepCops(state, dt);
+  stepHeli(state, dt);
   stepGang(state, dt);
   stepBullets(state, dt);
   stepPickups(state);
@@ -553,7 +605,7 @@ export function stepGame(state, input, dt) {
     state.autosaveT = 0;
     state.events.push('autosave');
   }
-  if (state.mission.idx >= 6 && state.screen === 'play') {
+  if (state.mission.idx >= MISSIONS.length && state.screen === 'play') {
     state.screen = 'win';
     state.events.push('win');
   }

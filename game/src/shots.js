@@ -30,7 +30,7 @@ function wrapCar(car) {
   if (car.x > roadAt(10)) car.x = roadAt(1);
 }
 
-function stealAndDrive(state, stepFn, seconds) {
+function stealAndDrive(state, stepFn, seconds, roadRow = 5) {
   const car = nearestCar(state, state.player.x, state.player.y, 400);
   if (car) {
     state.player.x = car.x - 20;
@@ -38,7 +38,7 @@ function stealAndDrive(state, stepFn, seconds) {
     state.screen = 'play';
     stepFn(state, { ...blankInput(), enter: true }, STEP);
   }
-  const roadY = roadAt(5);
+  const roadY = roadAt(roadRow);
   const c = state.cars.find((x) => x.id === state.player.car);
   if (c) {
     c.y = roadY;
@@ -68,11 +68,12 @@ function stealAndDrive(state, stepFn, seconds) {
 export function stageShot(name, state, stepFn) {
   state.screen = 'play';
   if (name === 'drive') {
-    // Park the player next to a parked car, steal it, drive east on row 5.
+    // Park the player next to a parked car, steal it, drive east on the
+    // beach road (row 10): sand, palms and the sea fill the lower frame.
     const spot = state.city.parked[3];
     state.player.x = spot.x - 20;
     state.player.y = spot.y;
-    stealAndDrive(state, stepFn, 6);
+    stealAndDrive(state, stepFn, 6, 10);
     return { screen: 'play' };
   }
   if (name === 'chase') {
@@ -80,7 +81,8 @@ export function stageShot(name, state, stepFn) {
     state.player.x = spot.x - 20;
     state.player.y = spot.y;
     stealAndDrive(state, stepFn, 4);
-    state.heat = 58;
+    // 4 stars: foot + car cops plus the police helicopter overhead.
+    state.heat = 88;
     state.stars = CFG.starsFor(state.heat);
     state.lastCrime = state.clock;
     state.banner = 'Polisi mengejarmu!';
@@ -97,6 +99,8 @@ export function stageShot(name, state, stepFn) {
       stepFn(state, input, STEP);
       wrapCar(cc);
     }
+    state.banner = 'Polisi mengejarmu! Helikopter di atasmu!';
+    state.bannerT = 5;
     return { screen: 'play' };
   }
   if (name === 'mission') {
@@ -131,6 +135,8 @@ export function stageShot(name, state, stepFn) {
       // Stop once the ambush has started and only one gangster is left.
       if (state.gang.length === 1 && state.mission.stage === 1) break;
     }
+    state.banner = 'Habisi semua anggota Los Halcones di dermaga';
+    state.bannerT = 5;
     return { screen: 'play' };
   }
   // start: title screen over a living city, a few seconds in.

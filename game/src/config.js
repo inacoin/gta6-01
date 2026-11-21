@@ -35,7 +35,8 @@ export const CFG = {
   starsFor: (heat) => (heat < 12 ? 0 : heat < 30 ? 1 : heat < 48 ? 2 : heat < 66 ? 3 : heat < 84 ? 4 : 5),
   // Money.
   startCash: 150,
-  missionReward: [300, 500, 400, 800, 1200, 3000],
+  missionReward: [300, 500, 400, 800, 1200, 3000, 600, 2000],
+  parcelReward: 150,
   // Timing.
   autosaveEvery: 30,
   bustRadius: 26,
@@ -44,13 +45,16 @@ export const CFG = {
   dayLength: 240, // seconds per full clock cycle
 };
 
-// Car models: name, colour palette, top-speed and acceleration multipliers.
+// Car models: name, colour palette, top-speed and acceleration multipliers,
+// and body length in px (the renderer draws each model to its own size).
 export const MODELS = [
-  { name: 'Burro', colors: ['#7a8a99', '#5d6d7e', '#95a5a6'], top: 0.82, acc: 0.9, seats: 4 },
-  { name: 'Tortuga', colors: ['#c9a227', '#a67c00', '#d4ac0d'], top: 0.7, acc: 0.75, seats: 2 },
-  { name: 'Flecha', colors: ['#c0392b', '#e74c3c', '#922b21'], top: 1.18, acc: 1.15, seats: 2 },
-  { name: 'Camioneta', colors: ['#2e86c1', '#1a5276', '#5499c7'], top: 0.9, acc: 0.85, seats: 4 },
-  { name: 'Lobo', colors: ['#1c1c1e', '#2c3e50', '#5d6d7e'], top: 1.05, acc: 1.0, seats: 4 },
+  { name: 'Burro', colors: ['#7a8a99', '#5d6d7e', '#95a5a6'], top: 0.82, acc: 0.9, seats: 4, len: 46 },
+  { name: 'Tortuga', colors: ['#c9a227', '#a67c00', '#d4ac0d'], top: 0.7, acc: 0.75, seats: 2, len: 40 },
+  { name: 'Flecha', colors: ['#c0392b', '#e74c3c', '#922b21'], top: 1.18, acc: 1.15, seats: 2, len: 46 },
+  { name: 'Camioneta', colors: ['#2e86c1', '#1a5276', '#5499c7'], top: 0.9, acc: 0.85, seats: 4, len: 50 },
+  { name: 'Lobo', colors: ['#1c1c1e', '#2c3e50', '#5d6d7e'], top: 1.05, acc: 1.0, seats: 4, len: 48 },
+  { name: 'Taxi', colors: ['#f1c40f', '#f7dc6f', '#d4ac0d'], top: 0.95, acc: 0.95, seats: 4, len: 46 },
+  { name: 'Camion', colors: ['#7f8c8d', '#616a6b', '#aeb6bf'], top: 0.8, acc: 0.72, seats: 2, len: 58 },
 ];
 
 // District names, by block column/row region. The lookup in city.js owns the

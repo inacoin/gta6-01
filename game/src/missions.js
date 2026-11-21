@@ -1,4 +1,4 @@
-// The story: six jobs from fixer Doña Carmen, each one chained to the next.
+// The story: eight jobs from fixer Doña Carmen, each one chained to the next.
 // A mission is a list of stages; a stage is done when its `done` check passes.
 // Stages can spawn gangsters, set the heat, or demand the player hold a spot.
 import { CFG } from './config.js';
@@ -164,10 +164,79 @@ export const MISSIONS = [
       },
     ],
   },
+  {
+    name: 'Misi 7 — Taxista Verde',
+    brief: 'Jadi sopir taksi sehari: jemput penumpang, antar ke hotel sebelum waktu habis.',
+    reward: CFG.missionReward[6],
+    onComplete(s) {
+      // Speed bonus: $5 per second left on the 75-second delivery clock.
+      const left = Math.max(0, Math.round(75 - s.mission.stageT));
+      const bonus = left * 5;
+      if (bonus > 0) s.cash += bonus;
+      return bonus;
+    },
+    stages: [
+      {
+        text: 'Pergi ke Pangkalan Taksi di La Marina',
+        target: (s) => atPlace(s, 'taxiStand'), r: 60,
+        onEnter(s) {
+          if (!s._taxiCar) {
+            const spot = atPlace(s, 'taxiStand');
+            const car = {
+              id: 501, x: spot.x + 20, y: spot.y, angle: 0, speed: 0,
+              model: 5, name: 'Taxi', color: '#f1c40f', parked: true,
+              traffic: false, driver: false, hp: 100, smoke: 0,
+            };
+            s.cars.push(car);
+            s._taxiCar = 501;
+          }
+        },
+      },
+      {
+        text: 'Naik taksi kuningmu (tekan E di dekatnya)',
+        target: (s) => atPlace(s, 'taxiStand'), r: 90,
+        done: (s) => s.player.car === 501,
+      },
+      {
+        text: 'Antar penumpang ke Hotel Playa Verde — 75 detik!',
+        target: (s) => atPlace(s, 'hotel'), r: 70,
+        timeLimit: 75,
+        onEnter(s) {
+          s.banner = 'Penumpang naik! 75 detik menuju hotel — ngebut!';
+          s.bannerT = 4;
+        },
+        done: (s) => s.player.car === 501 && near(s, atPlace(s, 'hotel'), 70),
+      },
+    ],
+  },
+  {
+    name: 'Misi 8 — La Gran Carrera',
+    brief: 'Balapan jalanan liar: lewati 3 gerbang — Dermaga, Pantai, Pondok — secepat mungkin.',
+    reward: CFG.missionReward[7],
+    onComplete(s) {
+      // Sub-2:30 total earns a $500 record bonus.
+      const bonus = s.mission.timerT < 150 ? 500 : 0;
+      if (bonus > 0) s.cash += bonus;
+      return bonus;
+    },
+    stages: [
+      {
+        text: 'Ke garis start di Banco Verde',
+        target: (s) => atPlace(s, 'bank'), r: 70,
+        onEnter(s) {
+          s.banner = 'Balapan jalanan! Gerbang: Dermaga 7 → Playa Verde → Pondok Carmen.';
+          s.bannerT = 5;
+        },
+      },
+      { text: 'Gerbang 1/3: Dermaga 7 di Puerto Norte', target: (s) => atPlace(s, 'docks'), r: 80 },
+      { text: 'Gerbang 2/3: Playa Verde', target: (s) => atPlace(s, 'beach'), r: 80 },
+      { text: 'Gerbang 3/3: Pondok Carmen — FINISH!', target: (s) => atPlace(s, 'hideout'), r: 80 },
+    ],
+  },
 ];
 
 export function missionState(idx) {
-  return { idx, active: false, stage: 0, holdT: 0, entered: false };
+  return { idx, active: false, stage: 0, holdT: 0, entered: false, timerT: 0, stageT: 0 };
 }
 
 export function currentStage(state) {
@@ -189,6 +258,8 @@ export function startMission(state) {
   m.stage = 0;
   m.holdT = 0;
   m.entered = false;
+  m.timerT = 0;
+  m.stageT = 0;
   state.banner = `${MISSIONS[m.idx].name}: ${MISSIONS[m.idx].brief}`;
   state.bannerT = 5;
   state.events.push('missionStart');
@@ -203,15 +274,29 @@ export function updateMission(state, dt, input) {
   }
   const def = MISSIONS[m.idx];
   if (!def) return;
+  m.timerT += dt;
+  m.stageT += dt;
   const stage = def.stages[m.stage];
   if (!stage) return;
   if (!m.entered) {
     m.entered = true;
+    m.stageT = 0;
     if (stage.onEnter) stage.onEnter(state);
     if (stage.text) {
       state.banner = stage.text;
       state.bannerT = 4;
     }
+  }
+  // A timed stage that runs out fails the mission; N retries it.
+  if (stage.timeLimit && m.stageT > stage.timeLimit) {
+    m.active = false;
+    m.stage = 0;
+    m.holdT = 0;
+    m.entered = false;
+    state.banner = `${def.name} GAGAL — waktu habis! Tekan N untuk coba lagi.`;
+    state.bannerT = 5;
+    state.events.push('missionFail');
+    return;
   }
   let done = false;
   if (stage.hold) {
@@ -232,9 +317,10 @@ export function updateMission(state, dt, input) {
     m.holdT = 0;
     m.entered = false;
     if (m.stage >= def.stages.length) {
-      state.cash += def.reward;
+      const bonus = def.onComplete ? def.onComplete(state) || 0 : 0;
+      state.cash += def.reward + bonus;
       state.stats.missions++;
-      state.banner = `${def.name} SELESAI! +$${def.reward}`;
+      state.banner = `${def.name} SELESAI! +$${def.reward + bonus}`;
       state.bannerT = 5;
       state.events.push('mission');
       state.events.push('autosave');
