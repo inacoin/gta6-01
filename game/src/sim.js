@@ -56,7 +56,7 @@ export function createGame(seed = 7) {
     });
   });
   // Traffic: cars already rolling on the roads.
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < CFG.trafficCars; i++) {
     const horizontal = chance(rng, 0.5);
     const line = int(rng, 0, CFG.blocks);
     const along = range(rng, 100, city.size - 100);
@@ -72,7 +72,7 @@ export function createGame(seed = 7) {
     });
   }
   // Pedestrians strolling the sidewalks.
-  for (let i = 0; i < 42; i++) spawnPed(state, rng, true);
+  for (let i = 0; i < CFG.pedestrians; i++) spawnPed(state, rng, true);
   // Static pickups: health at the hospital, armour + ammo at the gun shop.
   state.pickups.push(
     { x: city.places.hospital.x + 30, y: city.places.hospital.y, kind: 'health' },
@@ -174,6 +174,22 @@ function wantedUpkeep(state, dt) {
   const rate = anyNear || state.clock - state.lastCrime < 4 ? CFG.heatDecaySeen : CFG.heatDecay;
   state.heat = clamp(state.heat - rate * dt, 0, 100);
   state.stars = CFG.starsFor(state.heat);
+}
+
+// Bring the police presence up to what the current stars demand, right now
+// instead of trickling in over seconds. Used by the chase screenshot staging
+// so the frame is guaranteed to show 3 patrol cars + the helicopter; the
+// same rules as wantedUpkeep, just all at once, driven by the seeded rng.
+export function summonPolice(state) {
+  const wantFoot = Math.min(state.stars, 3);
+  const wantCars = state.stars >= 2 ? Math.min(state.stars - 1, 3) : 0;
+  let foot = state.cops.filter((c) => c.kind === 'foot').length;
+  let cars = state.cops.filter((c) => c.kind === 'car').length;
+  while (foot < wantFoot) { spawnCop(state, 'foot'); foot++; }
+  while (cars < wantCars) { spawnCop(state, 'car'); cars++; }
+  if (state.stars >= 4 && !state.heli) {
+    state.heli = { x: state.player.x, y: state.player.y - 320, rotor: 0 };
+  }
 }
 
 function stepHeli(state, dt) {
@@ -358,7 +374,7 @@ function stepPeds(state, dt) {
     ped.y = clamp(ped.y, 20, state.city.size - 20);
   }
   // A panicked crowd thins out: replace peds that ran far away.
-  if (state.peds.length < 30 && state.rng() < dt * 0.5) spawnPed(state, state.rng, true);
+  if (state.peds.length < 48 && state.rng() < dt * 0.5) spawnPed(state, state.rng, true);
 }
 
 function hurtPlayer(state, dmg) {

@@ -1,7 +1,28 @@
-// The story: eight jobs from fixer Doña Carmen, each one chained to the next.
+// The story in three acts: 12 jobs from fixer Doña Carmen. Act 1 is small
+// work for a newcomer, Act 2 builds the name, Act 3 ends in one last heist.
 // A mission is a list of stages; a stage is done when its `done` check passes.
 // Stages can spawn gangsters, set the heat, or demand the player hold a spot.
 import { CFG } from './config.js';
+
+// Acts: [first mission idx, last mission idx] plus the story beat each one
+// carries. The HUD and the pause screen read this, so the outline shows the
+// three-act structure plainly.
+export const ACTS = [
+  { name: 'Babak 1 — Pendatang', from: 0, to: 3, tagline: 'Baru tiba di Costa Verde. Carmen memberimu pekerjaan kecil.' },
+  { name: 'Babak 2 — Naik Daun', from: 4, to: 7, tagline: 'Namamu mulai dikenal. Pekerjaan makin besar, musuh makin banyak.' },
+  { name: 'Babak 3 — El Gran Golpe', from: 8, to: 11, tagline: 'Satu pukulan terakhir: rampok habis-habisan, lalu hilang.' },
+];
+
+export function actOf(idx) {
+  for (let a = 0; a < ACTS.length; a++) {
+    if (idx >= ACTS[a].from && idx <= ACTS[a].to) return a;
+  }
+  return ACTS.length - 1;
+}
+
+export function actName(idx) {
+  return ACTS[actOf(idx)].name;
+}
 
 function atPlace(state, key) {
   const p = state.city.places[key];
@@ -137,7 +158,7 @@ export const MISSIONS = [
     ],
   },
   {
-    name: 'Misi 6 — El Gran Golpe',
+    name: 'Misi 6 — Asalto al Banco',
     brief: 'Rampok Banco Verde, lalu kabur ke pondok Carmen.',
     reward: CFG.missionReward[5],
     stages: [
@@ -231,6 +252,139 @@ export const MISSIONS = [
       { text: 'Gerbang 1/3: Dermaga 7 di Puerto Norte', target: (s) => atPlace(s, 'docks'), r: 80 },
       { text: 'Gerbang 2/3: Playa Verde', target: (s) => atPlace(s, 'beach'), r: 80 },
       { text: 'Gerbang 3/3: Pondok Carmen — FINISH!', target: (s) => atPlace(s, 'hideout'), r: 80 },
+    ],
+  },
+  {
+    name: 'Misi 9 — La Venganza',
+    brief: 'Los Halcones membalas di Gudang 12. Balas mereka, lalu pulang ke pondok.',
+    reward: CFG.missionReward[8],
+    stages: [
+      {
+        text: 'Pergi ke Gudang 12 — Los Halcones menunggu',
+        target: (s) => atPlace(s, 'warehouse'), r: 80,
+      },
+      {
+        text: 'Balas dendam: habisi semua Los Halcones di gudang (8 orang)',
+        target: (s) => atPlace(s, 'warehouse'), r: 240,
+        onEnter(s) {
+          if (!s._revengeAmbush) {
+            s._revengeAmbush = true;
+            const w = atPlace(s, 'warehouse');
+            spawnGang(s, w.x, w.y, 8);
+          }
+        },
+        done: (s) => s.gang.length === 0,
+      },
+      {
+        text: 'Kembali ke Pondok Carmen, laporkan ke Doña Carmen',
+        target: (s) => atPlace(s, 'hideout'), r: 80,
+      },
+    ],
+  },
+  {
+    name: 'Misi 10 — El Informante',
+    brief: 'Jemput informan di Bar La Luna, antar ke Dermaga 7 sebelum dia ketahuan.',
+    reward: CFG.missionReward[9],
+    onComplete(s) {
+      // Speed bonus: $5 per second left on the 90-second escape clock.
+      const left = Math.max(0, Math.round(90 - s.mission.stageT));
+      const bonus = left * 5;
+      if (bonus > 0) s.cash += bonus;
+      return bonus;
+    },
+    stages: [
+      {
+        text: 'Pergi ke Bar La Luna dan jemput informan',
+        target: (s) => atPlace(s, 'bar'), r: 60,
+        onEnter(s) {
+          s.banner = 'Informan naik! Dia membawa daftar nama Los Halcones.';
+          s.bannerT = 4;
+        },
+      },
+      {
+        text: 'Antar informan ke Dermaga 7 — 90 detik, jangan sampai ketahuan!',
+        target: (s) => atPlace(s, 'docks'), r: 70,
+        timeLimit: 90,
+        onEnter(s) {
+          s.banner = 'Kabur ke Dermaga 7! 90 detik sebelum geng itu sadar.';
+          s.bannerT = 4;
+        },
+      },
+    ],
+  },
+  {
+    name: 'Misi 11 — Dinero Sucio',
+    brief: 'Kumpulkan uang kotor di tiga titik kota, lalu bawa ke pondok Carmen.',
+    reward: CFG.missionReward[10],
+    stages: [
+      {
+        text: 'Ambil setoran pertama di Casino Oro, El Centro',
+        target: (s) => atPlace(s, 'casino'), r: 70,
+        onEnter(s) { s.banner = 'Setoran 1/3: uang kasino. Jangan berhenti lama.'; s.bannerT = 3; },
+      },
+      {
+        text: 'Ambil setoran kedua di Hotel Playa Verde',
+        target: (s) => atPlace(s, 'hotel'), r: 70,
+        onEnter(s) { s.banner = 'Setoran 2/3: uang hotel.'; s.bannerT = 3; },
+      },
+      {
+        text: 'Ambil setoran terakhir di Playa Verde',
+        target: (s) => atPlace(s, 'beach'), r: 70,
+        onEnter(s) { s.banner = 'Setoran 3/3: uang pantai. Semua terkumpul!'; s.bannerT = 3; },
+      },
+      {
+        text: 'Bawa semua uang ke Pondok Carmen',
+        target: (s) => atPlace(s, 'hideout'), r: 80,
+      },
+    ],
+  },
+  {
+    name: 'Misi 12 — El Gran Golpe',
+    brief: 'FINALE: bobol Banco Verde, lawan seluruh geng, kabur naik perahu dari pantai.',
+    reward: CFG.missionReward[11],
+    stages: [
+      {
+        text: 'FINALE — Pergi ke Banco Verde. Ini dia.',
+        target: (s) => atPlace(s, 'bank'), r: 70,
+        onEnter(s) {
+          s.banner = 'EL GRAN GOLPE: bobol bank, lawan geng, kabur ke pantai!';
+          s.bannerT = 5;
+        },
+      },
+      {
+        text: 'Bobol brankas utama! Bertahan 10 detik di dalam bank',
+        target: (s) => atPlace(s, 'bank'), r: 70,
+        hold: 10,
+        onEnter(s) {
+          s.banner = 'Alarm berbunyi! Seluruh kota mengejarmu!';
+          s.bannerT = 3;
+          s.heat = Math.max(s.heat, 70);
+          s.stars = CFG.starsFor(s.heat);
+          s.lastCrime = s.clock;
+        },
+        done: (s) => s.mission.holdT >= 10,
+      },
+      {
+        text: 'Los Halcones menyerbu bank! Habisi mereka semua (10 orang)',
+        target: (s) => atPlace(s, 'bank'), r: 260,
+        onEnter(s) {
+          if (!s._finaleAmbush) {
+            s._finaleAmbush = true;
+            const b = atPlace(s, 'bank');
+            spawnGang(s, b.x, b.y, 10);
+          }
+        },
+        done: (s) => s.gang.length === 0,
+      },
+      {
+        text: 'KABUR! Lari ke perahu di Playa Verde — 120 detik!',
+        target: (s) => atPlace(s, 'beach'), r: 80,
+        timeLimit: 120,
+        onEnter(s) {
+          s.banner = 'Perahu menunggumu di pantai. LARI!';
+          s.bannerT = 4;
+        },
+      },
     ],
   },
 ];

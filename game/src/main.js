@@ -2,12 +2,12 @@
 // transitions (title / pause / wasted / busted / win) and the debug hooks the
 // smoke tests use. All rules live in sim.js; this file only drives them.
 import { createGame, stepGame, playerCar } from './sim.js';
-import { render } from './draw.js';
+import { render, phaseName } from './draw.js';
 import { createInput } from './input.js';
 import { createSound } from './sound.js';
 import { saveGame, loadGame, applySave, hasSave } from './store.js';
 import { stageShot } from './shots.js';
-import { startMission } from './missions.js';
+import { startMission, MISSIONS, ACTS, currentStage, currentTarget } from './missions.js';
 import { clamp } from './rng.js';
 
 const canvas = document.getElementById('game');
@@ -147,6 +147,23 @@ window.__game = {
     if (car) { car.x = x; car.y = y; }
   },
   setHeat: (v) => { state.heat = v; },
+  // Time-of-day + story hooks for the smoke tests.
+  setTime: (seconds) => { state.time = ((seconds % 86400) + 86400) % 86400; },
+  phase: () => phaseName(state.time / 3600),
+  missionCount: () => MISSIONS.length,
+  actCount: () => ACTS.length,
+  missionNames: () => MISSIONS.map((m) => m.name),
+  stageInfo: () => {
+    const stage = currentStage(state);
+    const target = currentTarget(state);
+    return stage ? {
+      idx: state.mission.idx, stage: state.mission.stage,
+      text: stage.text, hasTarget: !!target,
+      target: target ? { x: Math.round(target.x), y: Math.round(target.y) } : null,
+      hold: stage.hold || 0, timeLimit: stage.timeLimit || 0,
+      gang: state.gang.length, active: state.mission.active,
+    } : { idx: state.mission.idx, stage: state.mission.stage, active: state.mission.active, gang: state.gang.length };
+  },
   save: () => saveGame(state),
   load: () => {
     const d = loadGame();

@@ -67,6 +67,7 @@ export function buildCity(seed = 7) {
   const plazas = [];
   const containers = [];
   const beachProps = [];
+  const trees = []; // street trees on sidewalk corners, one per block corner
 
   for (let row = 0; row < CFG.blocks; row++) {
     for (let col = 0; col < CFG.blocks; col++) {
@@ -85,11 +86,21 @@ export function buildCity(seed = 7) {
         parks.push({ x: x0, y: y0, size, trees: int(rng, 6, 12), pond: chance(rng, 0.4) });
         continue;
       }
+      // A street tree or two on the block's sidewalk corners, so the roads
+      // read green instead of bare grey. Deterministic per block.
+      const cornerTrees = int(rng, 1, 3);
+      for (let t = 0; t < cornerTrees; t++) {
+        trees.push({
+          x: x0 + (chance(rng, 0.5) ? 8 : size - 8),
+          y: y0 + (chance(rng, 0.5) ? 8 : size - 8),
+          r: range(rng, 9, 13),
+        });
+      }
       if (use === 'plaza' || use === 'beach') {
         plazas.push({ x: x0, y: y0, size, kind: use });
         if (use === 'beach') {
           // Palms and umbrellas scattered on the sand.
-          const n = int(rng, 2, 3);
+          const n = int(rng, 3, 5);
           for (let i = 0; i < n; i++) {
             const px = x0 + range(rng, 20, size - 20);
             const py = y0 + range(rng, 20, size - 20);
@@ -115,15 +126,17 @@ export function buildCity(seed = 7) {
           x: bx, y: by, w: bw, h: bh,
           color: pick(rng, palette),
           tall: downtown && chance(rng, 0.75),
+          floors: downtown ? int(rng, 3, 6) : int(rng, 1, 3),
           roof: pick(rng, ['#2b2d42', '#6c757d', '#495057', '#8d0801']),
           windows: downtown ? 6 : int(rng, 2, 4),
           style,
           awning: style === 'shop' ? pick(rng, ['#e74c3c', '#f39c12', '#2e86c1', '#27ae60']) : null,
+          sign: style === 'shop' ? pick(rng, ['TIENDA', 'BAR', 'CAFÉ', 'HOTEL', 'TACOS', 'PIZZA']) : null,
         });
       }
       // Shipping containers stack up in the dock and industrial blocks.
       if (district === 'Puerto Norte' || district === 'Zona Industrial') {
-        const n = int(rng, 2, 4);
+        const n = int(rng, 3, 5);
         for (let i = 0; i < n; i++) {
           containers.push({
             x: x0 + range(rng, 4, size - 60),
@@ -168,6 +181,7 @@ export function buildCity(seed = 7) {
     beach: { ...at(6, 11), name: 'Playa Verde' },
     taxiStand: { ...at(9, 2), name: 'Pangkalan Taksi — La Marina' },
     hotel: { ...at(8, 10), name: 'Hotel Playa Verde' },
+    casino: { ...at(7, 5), name: 'Casino Oro — El Centro' },
   };
 
   // Carmen's hidden parcels: 8 stashes tucked by the roadside across the
@@ -187,7 +201,7 @@ export function buildCity(seed = 7) {
   // Parked cars: seeded spots along road edges, away from intersections.
   const parked = [];
   const prng = mulberry32(seed * 31 + 5);
-  for (let i = 0; i < 46; i++) {
+  for (let i = 0; i < CFG.parkedCars; i++) {
     const horizontal = chance(prng, 0.5);
     const line = int(prng, 0, CFG.blocks);
     const along = int(prng, 1, CFG.blocks - 1) * CFG.pitch + range(prng, 60, CFG.pitch - CFG.road - 60);
@@ -200,7 +214,7 @@ export function buildCity(seed = 7) {
     });
   }
 
-  return { seed, blocks, buildings, parks, plazas, places, parked, parcels, containers, beachProps, piers, boats, size: WORLD };
+  return { seed, blocks, buildings, parks, plazas, places, parked, parcels, containers, beachProps, trees, piers, boats, size: WORLD };
 }
 
 // Circle-vs-buildings collision: push the circle out of any building it overlaps.

@@ -4,7 +4,7 @@
 
 # Costa Verde — Kejahatan Terbuka
 
-Game kejahatan dunia terbuka 2D top-down orisinal untuk bounty [make.fun gta6-01](https://make.fun/bounty/gta6-01): curi mobil, kabur dari polisi, dan selesaikan 8 misi di kota pantai Costa Verde. Jalankan dengan `node serve.ts` lalu buka http://localhost:8080, atau bangun entry dengan `MAKEFUN_OUTPUT_DIR=out node main.ts`.
+Game kejahatan dunia terbuka 2D top-down orisinal untuk bounty [make.fun gta6-01](https://make.fun/bounty/gta6-01): curi mobil, kabur dari polisi, dan selesaikan 12 misi dalam 3 babak di kota pantai Costa Verde — dari fajar sampai senja. Jalankan dengan `node serve.ts` lalu buka http://localhost:8080, atau bangun entry dengan `MAKEFUN_OUTPUT_DIR=out node main.ts`.
 
 ## Main
 
@@ -20,34 +20,46 @@ R isi peluru · SPACE rem tangan · N mulai misi · H bantuan · M suara · ESC 
 
 - **Kota prosedural** — Costa Verde: grid 12×12 blok dengan 8 distrik bernama
   (El Centro, Barrio Viejo, La Marina, Puerto Norte, Zona Industrial,
-  Las Colinas, Playa Verde, Parque Central), gedung, taman, plaza, pantai
-  dengan palem dan payung, dermaga kayu dan perahu, kontainer di pelabuhan,
-  zebra cross, dan lampu jalan. Seed yang sama selalu membangun kota yang sama.
+  Las Colinas, Playa Verde, Parque Central), gedung bertingkat dengan papan
+  nama toko, taman, plaza, pantai dengan palem dan payung, dermaga kayu dan
+  perahu, kontainer di pelabuhan, zebra cross, lampu jalan, dan pohon di
+  trotoar. Seed yang sama selalu membangun kota yang sama.
+- **Siklus siang/malam** — jam dalam game berjalan satu hari penuh tiap 4
+  menit: fajar, siang, senja (golden hour), dan malam. Saat senja langit
+  menghangat oranye, bayangan memanjang, jendela menyala kuning, lampu jalan
+  menyala, dan lampu depan mobil menyorot jalan; di malam hari helikopter
+  menyalakan lampu sorotnya. Jam + fase hari (SIANG/SENJA/MALAM) tampil di HUD.
 - **Jalan kaki + mengemudi** — fisika mobil arcade (akselerasi, belok ikut
   kecepatan, rem tangan), 7 model mobil dari Burro sampai Flecha, plus taksi
   kuning dan truk boks Camion. Mobil polisi berkedip merah-biru; lampu depan
-  menyala di malam hari.
-- **Lalu lintas & pejalan kaki** — mobil lalu lintas mengikuti jalan dan belok
-  di persimpangan, pejalan kaki berjalan di trotoar dan kabur saat ada tembakan.
+  menyala di senja dan malam hari.
+- **Lalu lintas & pejalan kaki** — 26 mobil lalu lintas mengikuti jalan dan
+  belok di persimpangan, 64 pejalan kaki berjalan di trotoar dan kabur saat
+  ada tembakan, plus 64 mobil parkir di pinggir jalan.
 - **Curi mobil** — mobil parkir dan mobil lalu lintas (sopirnya kabur).
   Mobil misi (Flecha panas, taksi) selalu diprioritaskan saat menekan E.
 - **Wanted** — kejahatan yang disaksikan menaikkan panas 0–5 bintang; polisi
   jalan kaki mengejar dan menangkap, mobil patroli menabrak (dengan jeda antar
   tabrakan), dan di bintang 4–5 helikopter polisi mengorbit di atasmu dan
   membuat panasmu tak kunjung dingin. Sembunyi dan panasnya mendingin.
-- **8 misi berantai** — cerita dari fixer Doña Carmen: antar paket, curi mobil
-  panas, kabur dari kejaran, baku tembak di dermaga, bersih-bersih gudang,
-  perampokan Banco Verde, jadi sopir taksi (antar penumpang ke hotel dalam
-  75 detik, ada bonus kecepatan), dan balapan jalanan 3 gerbang dengan bonus
-  rekor waktu. Misi berwaktu bisa gagal dan diulang dengan N.
+- **12 misi berantai dalam 3 babak** — cerita dari fixer Doña Carmen:
+  Babak 1 "Pendatang" (antar paket, curi mobil panas, kabur dari kejaran,
+  baku tembak di dermaga), Babak 2 "Naik Daun" (bersih-bersih gudang,
+  perampokan Banco Verde, jadi sopir taksi berwaktu 75 detik, dan balapan
+  jalanan 3 gerbang dengan bonus rekor waktu), Babak 3 "El Gran Golpe"
+  (balas dendam ke geng, antar informan 90 detik, kumpulkan uang kotor di
+  tiga titik kota, dan finale: bobol bank 10 detik, lawan 10 anggota geng,
+  kabur naik perahu dari pantai dalam 120 detik — hadiah $10.000). Misi
+  berwaktu bisa gagal dan diulang dengan N. Progres babak + daftar 12 misi
+  tampil di HUD dan layar jeda (ESC).
 - **Kolektibel** — 8 paket tersembunyi Carmen di pinggir jalan seisi kota,
   masing-masing $150, terlacak di HUD dan minimap.
 - **Combat** — pistol dengan bidikan mouse, geng Los Halcones yang menembak
   balik, nyawa, armor, dan pickup amunisi / nyawa / uang.
-- **HUD + minimap** — bar nyawa & armor, uang, bintang wanted, jam, nama
-  distrik, banner misi, timer misi berwaktu, jarak objektif, progres misi dan
-  paket, speedometer, dan minimap live dengan blip (termasuk laut, paket,
-  helikopter, dan panah arah pemain).
+- **HUD + minimap** — bar nyawa & armor, uang, bintang wanted, jam + fase
+  hari, nama distrik, banner misi, timer misi berwaktu, jarak objektif,
+  progres babak/misi dan paket, speedometer, dan minimap live dengan blip
+  (termasuk laut, paket, helikopter, dan panah arah pemain).
 - **Save** — localStorage, autosave tiap misi selesai dan tiap 30 detik,
   lanjutkan dari layar judul; WASTED / BUSTED respawn di rumah sakit dan
   kantor polisi.

@@ -210,6 +210,126 @@ try {
   const bankOk = await evl('!!__game.state.city.places.bank && __game.state.city.places.bank.x > 0');
   check('bank / hideout places exist', bankOk);
 
+  // --- Round 4: story structure (12 missions, 3 acts) + day/night cycle. ---
+  check('12 missions in 3 acts', (await evl('__game.missionCount()')) === 12 && (await evl('__game.actCount()')) === 3);
+  const names = await evl('__game.missionNames()');
+  check('finale is Misi 12 El Gran Golpe', names[11] === 'Misi 12 — El Gran Golpe', names[11]);
+  check('dusk phase at 18:20', await evl('__game.setTime(18.4 * 3600); __game.phase()') === 'dusk');
+  check('day phase at noon', await evl('__game.setTime(12 * 3600); __game.phase()') === 'day');
+  check('night phase at 22:00', await evl('__game.setTime(22 * 3600); __game.phase()') === 'night');
+  await evl('__game.setTime(18.4 * 3600)'); // leave the world at golden hour
+
+  // Missions 9-12 end to end: drive each one through its stages with the
+  // real rules (teleport to each objective like mission 1 above, shoot the
+  // gangsters with real mouse input, hold the bank vault for real seconds).
+  const fireAt = async (wx, wy) => {
+    const scr = await evl(`(() => {
+      const s = __game.state;
+      const camX = Math.max(0, Math.min(s.city.size - 1280, s.player.x - 640));
+      const camY = Math.max(0, Math.min(s.city.size - 720, s.player.y - 360));
+      return { x: ${wx} - camX, y: ${wy} - camY };
+    })()`);
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: scr.x, y: scr.y });
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: scr.x, y: scr.y, button: 'left', clickCount: 1 });
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: scr.x, y: scr.y, button: 'left', clickCount: 1 });
+    await sleep(170);
+  };
+  const clearHostiles = async () => {
+    // Strafe around each target: a building can block the line of fire from
+    // one side, so cycle offsets until some angle is clear.
+    const offsets = [[-180, 0], [180, 0], [0, -180], [0, 180], [-60, 0]];
+    let side = 0;
+    for (let i = 0; i < 240; i++) {
+      const s = await status();
+      if (s.screen === 'busted' || s.screen === 'wasted') {
+        // Down in the fight: confirm through the respawn and keep going.
+        await evl('__game.input.confirm = true');
+        await sleep(250);
+        await evl('__game.state.player.hp = 100; __game.state.player.armor = 100;');
+        continue;
+      }
+      if (s.screen !== 'play') return false;
+      // Patch up mid-fight so a 10-man ambush is survivable at test pace.
+      const hp = await evl('__game.state.player.hp');
+      if (hp < 40) await evl('__game.state.player.hp = 100; __game.state.player.armor = 100;');
+      const target = await evl(`(() => {
+        const st = __game.state;
+        const g = st.gang[0];
+        if (g) return { x: g.x, y: g.y };
+        const c = st.cops.find((c) => c.kind === 'foot');
+        if (c) return { x: c.x, y: c.y };
+        return null;
+      })()`);
+      if (!target) return true;
+      // Stand off at a rotating angle: far enough that gangster spread
+      // misses often, with a clear line of fire from some side.
+      const [ox, oy] = offsets[side++ % offsets.length];
+      await evl(`__game.teleport(${target.x + ox}, ${target.y + oy})`);
+      const mag = await evl('__game.state.player.mag');
+      if (mag <= 0) {
+        await evl('__game.input.reload = true');
+        await sleep(250);
+        continue;
+      }
+      await fireAt(target.x, target.y);
+    }
+    return false;
+  };
+  const driveMission = async (idx, timeoutMs) => {
+    // Clean slate: a previous test mission may still be active (startMission
+    // refuses while one is), so reset the mission machine first.
+    await evl('__game.state.mission.active = false; __game.state.mission.stage = 0; __game.state.mission.holdT = 0; __game.state.mission.entered = false; __game.state.gang.length = 0; __game.state.bullets.length = 0;');
+    await evl(`__game.state.mission.idx = ${idx}`);
+    await evl('__game.startMission()');
+    // Start clean: no leftover heat or cops from the previous mission's
+    // firefight, or a timed stage can expire while the test is busy.
+    await evl('__game.setHeat(0); __game.state.cops.length = 0; __game.state.heli = null;');
+    // On foot for combat missions, topped up so a gang ambush is survivable.
+    if (await evl('__game.state.player.car !== null')) {
+      await evl('__game.input.enter = true');
+      await sleep(300);
+    }
+    await evl('__game.state.player.hp = 100; __game.state.player.armor = 100;');
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+      const info = await evl('__game.stageInfo()');
+      const s = await status();
+      if (s.screen === 'busted' || s.screen === 'wasted') {
+        await evl('__game.input.confirm = true');
+        await sleep(250);
+        await evl('__game.state.player.hp = 100; __game.state.player.armor = 100;');
+        continue;
+      }
+      if (s.screen !== 'play') return (await status()).mission > idx;
+      if (!info.active) return (await status()).mission > idx;
+      // Timed stages fail on the clock: go straight to the objective
+      // instead of fighting whatever is nearby.
+      if (info.timeLimit > 0 && info.target) {
+        await evl(`__game.teleport(${info.target.x}, ${info.target.y})`);
+        await sleep(200);
+        continue;
+      }
+      const hostiles = info.gang > 0 || (await evl('__game.state.cops.filter((c) => c.kind === "foot").length')) > 0;
+      if (hostiles) {
+        if (!(await clearHostiles())) return false;
+        continue;
+      }
+      if (info.target) await evl(`__game.teleport(${info.target.x}, ${info.target.y})`);
+      await sleep(200);
+    }
+    return false;
+  };
+
+  const m9 = await driveMission(8, 90000);
+  check('mission 9 La Venganza completes', m9, `missions done=${(await status()).mission}`);
+  const m10 = await driveMission(9, 90000);
+  check('mission 10 El Informante completes', m10, `missions done=${(await status()).mission}`);
+  const m11 = await driveMission(10, 90000);
+  check('mission 11 Dinero Sucio completes', m11, `missions done=${(await status()).mission}`);
+  const m12 = await driveMission(11, 120000);
+  check('mission 12 El Gran Golpe finale completes', m12, `missions done=${(await status()).mission}`);
+  check('all 12 missions done, win screen', (await status()).mission >= 12 && (await status()).screen === 'win', `screen=${(await status()).screen}`);
+
   check('no page errors during smoke test', pageErrors.length === 0, pageErrors.join(' | ').slice(0, 300));
   cdp.close();
 } finally {

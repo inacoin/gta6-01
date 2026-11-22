@@ -35,8 +35,12 @@ export const CFG = {
   starsFor: (heat) => (heat < 12 ? 0 : heat < 30 ? 1 : heat < 48 ? 2 : heat < 66 ? 3 : heat < 84 ? 4 : 5),
   // Money.
   startCash: 150,
-  missionReward: [300, 500, 400, 800, 1200, 3000, 600, 2000],
+  missionReward: [300, 500, 400, 800, 1200, 3000, 600, 2000, 1500, 900, 2500, 10000],
   parcelReward: 150,
+  // Crowd: how many traffic cars and pedestrians the city starts with.
+  trafficCars: 26,
+  pedestrians: 64,
+  parkedCars: 64,
   // Timing.
   autosaveEvery: 30,
   bustRadius: 26,
