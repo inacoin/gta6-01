@@ -4,7 +4,9 @@
 import { CFG, MODELS } from './config.js';
 import { buildCity, roadAt, snapRoad, collideBuildings, onRoad } from './city.js';
 import { mulberry32, pick, range, int, chance, clamp, dist2, angleTo, angleDiff } from './rng.js';
-import { updateMission, missionState, MISSIONS } from './missions.js';
+import { updateMission, missionState, MISSIONS, currentStage } from './missions.js';
+import { createWeather, stepWeather } from './weather.js';
+import { createCasino, enterCasino, stepCasino } from './casino.js';
 
 export function createGame(seed = 7) {
   const city = buildCity(seed);
@@ -23,12 +25,19 @@ export function createGame(seed = 7) {
     lastCrime: -999,
     banner: '',
     bannerT: 0,
-    stats: { kills: 0, thefts: 0, shots: 0, missions: 0, driven: 0, parcels: 0 },
+    stats: { kills: 0, thefts: 0, shots: 0, missions: 0, driven: 0, parcels: 0, slots: 0, slotWon: 0 },
+    weather: createWeather(rng),
+    casino: createCasino(rng),
+    boats: [], // drivable boats moored in the sea (see below)
+    wakeT: 0,
+    spawnFootT: 0,
+    spawnCarT: 0,
     player: {
       x: start.x, y: start.y + 40, angle: -Math.PI / 2,
       hp: CFG.playerHp, armor: CFG.playerArmor,
       mag: CFG.pistolMag, reserve: 48,
       car: null, // id of the car the player is driving, or null
+      boat: null, // id of the boat the player is sailing, or null
       speed: 0, run: false, moving: false,
     },
     cars: [],
@@ -55,6 +64,16 @@ export function createGame(seed = 7) {
       parked: true, traffic: false, driver: false, hp: 100, smoke: 0,
     });
   });
+  // Drivable boats moored in the sea: one at the beach (Misi 13's Lancha),
+  // one by the east pier. bx/by remember the mooring for test resets.
+  // They sit just off the waterline (size-150) so the player on the sand
+  // can reach them, and the sea is 140px deep.
+  const beach = city.places.beach;
+  const pierX = city.piers[1] ? city.piers[1].x : city.size * 0.68;
+  state.boats.push(
+    { id: 600, x: beach.x + 60, y: city.size - 100, bx: beach.x + 60, by: city.size - 100, angle: 0, speed: 0, name: 'Lancha', color: '#e74c3c', hp: 100 },
+    { id: 601, x: pierX + 70, y: city.size - 100, bx: pierX + 70, by: city.size - 100, angle: Math.PI / 2, speed: 0, name: 'Lancha', color: '#2e86c1', hp: 100 },
+  );
   // Traffic: cars already rolling on the roads.
   for (let i = 0; i < CFG.trafficCars; i++) {
     const horizontal = chance(rng, 0.5);
@@ -114,6 +133,20 @@ export function playerCar(state) {
   return state.player.car === null ? null : state.cars.find((c) => c.id === state.player.car) || null;
 }
 
+export function nearestBoat(state, x, y, maxD) {
+  let best = null;
+  let bestD = maxD * maxD;
+  for (const b of state.boats) {
+    const d = dist2(x, y, b.x, b.y);
+    if (d < bestD) { bestD = d; best = b; }
+  }
+  return best;
+}
+
+export function playerBoat(state) {
+  return state.player.boat === null ? null : state.boats.find((b) => b.id === state.player.boat) || null;
+}
+
 function witnessNear(state, x, y) {
   for (const p of state.peds) if (dist2(x, y, p.x, p.y) < 280 * 280) return true;
   for (const c of state.cops) if (dist2(x, y, c.x, c.y) < 520 * 520) return true;
@@ -159,8 +192,17 @@ function wantedUpkeep(state, dt) {
   const wantCars = state.stars >= 2 ? Math.min(state.stars - 1, 3) : 0;
   const foot = state.cops.filter((c) => c.kind === 'foot').length;
   const cars = state.cops.filter((c) => c.kind === 'car').length;
-  if (foot < wantFoot && state.rng() < dt * 0.8) spawnCop(state, 'foot');
-  if (cars < wantCars && state.rng() < dt * 0.5) spawnCop(state, 'car');
+  // Spawn timers, not coin flips: a wanted level always brings its cops
+  // within a bounded ~1s (foot) / ~1.6s (car), so the response never depends
+  // on a lucky rng roll mid-frame. Only the spawn direction stays random.
+  if (foot < wantFoot) {
+    state.spawnFootT += dt;
+    if (state.spawnFootT > 1.0) { state.spawnFootT = 0; spawnCop(state, 'foot'); }
+  } else state.spawnFootT = 0;
+  if (cars < wantCars) {
+    state.spawnCarT += dt;
+    if (state.spawnCarT > 1.6) { state.spawnCarT = 0; spawnCop(state, 'car'); }
+  } else state.spawnCarT = 0;
   // At 4-5 stars a police helicopter joins the hunt and watches from above.
   if (state.stars >= 4 && !state.heli) {
     state.heli = { x: state.player.x, y: state.player.y - 320, rotor: 0 };
@@ -212,7 +254,46 @@ function stepHeli(state, dt) {
 function stepPlayer(state, input, dt) {
   const p = state.player;
   const car = playerCar(state);
+  const boat = playerBoat(state);
   p.moving = false;
+  if (boat) {
+    // --- sailing: arcade model like driving, but on the open sea — no
+    // walls, only the shoreline and the map edge to hold the boat in.
+    const fwd = (input.up ? 1 : 0) - (input.down ? 0.55 : 0);
+    const steer = (input.left ? -1 : 0) + (input.right ? 1 : 0);
+    boat.speed += fwd * CFG.boatAccel * dt;
+    boat.speed -= boat.speed * 0.5 * dt;
+    boat.speed = clamp(boat.speed, -CFG.boatMax * 0.4, CFG.boatMax);
+    const turnRate = CFG.boatTurn * clamp(Math.abs(boat.speed) / 180, 0, 1) * (boat.speed < 0 ? -1 : 1);
+    boat.angle += steer * turnRate * dt;
+    boat.x += Math.cos(boat.angle) * boat.speed * dt;
+    boat.y += Math.sin(boat.angle) * boat.speed * dt;
+    boat.x = clamp(boat.x, 30, state.city.size - 30);
+    boat.y = clamp(boat.y, state.city.size - 140, state.city.size - 12); // stays in the sea
+    p.x = boat.x; p.y = boat.y; p.angle = boat.angle; p.speed = boat.speed;
+    p.moving = Math.abs(boat.speed) > 20;
+    state.stats.driven += Math.abs(boat.speed) * dt;
+    // Wake: white foam trailing behind the hull while it moves.
+    state.wakeT -= dt;
+    if (Math.abs(boat.speed) > 100 && state.wakeT <= 0) {
+      state.wakeT = 0.06;
+      const bx = boat.x - Math.cos(boat.angle) * 26;
+      const by = boat.y - Math.sin(boat.angle) * 26;
+      state.particles.push({
+        x: bx + (state.rng() - 0.5) * 14, y: by + (state.rng() - 0.5) * 14,
+        vx: -Math.cos(boat.angle) * 30, vy: -Math.sin(boat.angle) * 30,
+        life: 0.9, color: '#d6eaf8',
+      });
+    }
+    if (input.enter) {
+      // Step off onto the sand, due north of the boat.
+      p.boat = null;
+      p.x = boat.x;
+      p.y = state.city.size - 2 * CFG.pitch + 60;
+      p.angle = -Math.PI / 2;
+    }
+    return;
+  }
   if (car) {
     // --- driving: arcade model, steering scales with speed, handbrake slides.
     const model = MODELS[car.model];
@@ -271,8 +352,27 @@ function stepPlayer(state, input, dt) {
     p.run = input.run;
     const hit = collideBuildings(state.city, p.x, p.y, CFG.playerRadius);
     p.x = hit.x; p.y = hit.y;
+    // The sea is not a sidewalk: on foot the player stops at the waterline.
+    p.y = Math.min(p.y, state.city.size - 150);
   }
   if (input.enter) {
+    // Casino Oro door: standing right at the gold door walks you in — the
+    // door wins over any car parked beside it, so entry is always reliable.
+    const casinoPlace = state.city.places.casino;
+    const nearCasino = dist2(p.x, p.y, casinoPlace.x, casinoPlace.y) < 40 * 40;
+    if (nearCasino) {
+      enterCasino(state);
+      return;
+    }
+    // Boats: E boards the nearest moored Lancha.
+    const boat0 = nearestBoat(state, p.x, p.y, 56);
+    if (boat0) {
+      p.boat = boat0.id;
+      p.x = boat0.x; p.y = boat0.y; p.angle = boat0.angle;
+      state.banner = `Naik ${boat0.name}! WASD kemudi — E turun di pasir.`;
+      state.bannerT = 3;
+      return;
+    }
     // Mission cars (id >= 500: the hot Flecha, the taxi) take priority over
     // passing traffic — the job needs that exact car, not whatever is nearest.
     let car = null;
@@ -308,6 +408,7 @@ function stepPlayer(state, input, dt) {
 
 function stepTraffic(state, dt) {
   const p = state.player;
+  const holdingVault = isHoldingVault(state);
   for (const car of state.cars) {
     if (!car.traffic) continue;
     // Slow down for the car ahead on the same lane.
@@ -334,18 +435,23 @@ function stepTraffic(state, dt) {
     }
     car.x += Math.cos(car.angle) * car.speed * dt;
     car.y += Math.sin(car.angle) * car.speed * dt;
-    // Keep inside the city; bounce at the edge roads.
-    if (car.x < 40 || car.x > state.city.size - 40 || car.y < 40 || car.y > state.city.size - 40) {
+    // Keep inside the city; bounce at the edge roads — and at the sea:
+    // the beach road (row 11) is the last road south, traffic never drives
+    // into the water where the boats sail.
+    if (car.x < 40 || car.x > state.city.size - 40 || car.y < 40 || car.y > state.city.size - 200) {
       car.angle += Math.PI;
       car.axis = car.axis === 'h' ? 'v' : 'h';
       car.dir = -car.dir;
       car.x = clamp(car.x, 40, state.city.size - 40);
-      car.y = clamp(car.y, 40, state.city.size - 40);
+      car.y = clamp(car.y, 40, state.city.size - 200);
     }
     // Traffic that hits the player hard is a crime the player did not commit;
-    // a traffic car ramming the player's car still hurts the player.
+    // a traffic car ramming the player's car still hurts the player. (Not
+    // while holding a vault: the player is indoors, see isHoldingVault.
+    // Never while sailing: traffic stays out of the sea, and a car cannot
+    // ram a boat.)
     const d2 = dist2(car.x, car.y, p.x, p.y);
-    if (d2 < 30 * 30 && playerCar(state) === null && Math.abs(car.speed) > 60) {
+    if (d2 < 30 * 30 && playerCar(state) === null && playerBoat(state) === null && Math.abs(car.speed) > 60 && !holdingVault) {
       hurtPlayer(state, 12);
       burst(state, p.x, p.y, '#e74c3c', 5);
       state.events.push('crash');
@@ -371,7 +477,7 @@ function stepPeds(state, dt) {
     const hit = collideBuildings(state.city, ped.x, ped.y, 10);
     ped.x = hit.x; ped.y = hit.y;
     ped.x = clamp(ped.x, 20, state.city.size - 20);
-    ped.y = clamp(ped.y, 20, state.city.size - 20);
+    ped.y = clamp(ped.y, 20, state.city.size - 150); // beachgoers stop at the waterline
   }
   // A panicked crowd thins out: replace peds that ran far away.
   if (state.peds.length < 48 && state.rng() < dt * 0.5) spawnPed(state, state.rng, true);
@@ -394,9 +500,24 @@ function hurtPlayer(state, dmg) {
   }
 }
 
+// Vault-hold rule (Misi 6 + Misi 12 finale): while the player is inside
+// the bank holding the vault, they are conceptually indoors — the cops
+// surround the building but cannot bust them, and passing traffic cannot
+// ram them. Without this, a foot cop wandering in (or a traffic car
+// crossing the bank intersection) during the fixed 8/10s hold could end
+// the run on pure timing luck. The hold itself is the deterministic part;
+// the fight after it is not protected.
+function isHoldingVault(state) {
+  const stage = currentStage(state);
+  if (!stage || !stage.hold || !stage.target) return false;
+  const t = stage.target(state);
+  return dist2(state.player.x, state.player.y, t.x, t.y) < stage.r * stage.r;
+}
+
 function stepCops(state, dt) {
   const p = state.player;
   const pcar = playerCar(state);
+  const holdingVault = isHoldingVault(state);
   for (let i = state.cops.length - 1; i >= 0; i--) {
     const cop = state.cops[i];
     if (cop.kind === 'foot') {
@@ -407,7 +528,7 @@ function stepCops(state, dt) {
       cop.y += Math.sin(cop.angle) * sp * dt;
       const hit = collideBuildings(state.city, cop.x, cop.y, 11);
       cop.x = hit.x; cop.y = hit.y;
-      if (d < CFG.bustRadius && !pcar && p.speed < 60) {
+      if (d < CFG.bustRadius && !pcar && p.speed < 60 && !holdingVault) {
         cop.bustT += dt;
         if (cop.bustT > 0.9) {
           state.screen = 'busted';
@@ -599,6 +720,12 @@ export function stepGame(state, input, dt) {
   state.time = (state.time + dt * (86400 / CFG.dayLength)) % 86400;
   if (state.bannerT > 0) state.bannerT -= dt;
   if (state.flash > 0) state.flash -= dt;
+  stepWeather(state, dt);
+  if (state.casino.inside) {
+    // Inside Casino Oro the street freezes: only the room moves.
+    stepCasino(state, input, dt);
+    return;
+  }
   if (input.shoot) shoot(state, input.aimX, input.aimY);
   if (input.reload) reload(state);
   stepPlayer(state, input, dt);

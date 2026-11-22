@@ -112,6 +112,9 @@ export function createSound() {
         case 'wasted': [330, 262, 196, 131].forEach((f, i) => s.tone(f, 0.3, 'sawtooth', 0.12, i * 0.22)); break;
         case 'busted': [440, 415, 392].forEach((f, i) => s.tone(f, 0.25, 'square', 0.1, i * 0.2)); break;
         case 'win': [523, 659, 784, 1047, 1319].forEach((f, i) => s.tone(f, 0.3, 'triangle', 0.16, i * 0.14)); break;
+        case 'thunder': s.noise(1.4, 0.22, 110); s.tone(55, 1.0, 'sine', 0.18); s.tone(38, 1.2, 'sine', 0.12, 0.15); break;
+        case 'slot': [660, 520, 440].forEach((f, i) => s.tone(f, 0.07, 'square', 0.1, i * 0.09)); break;
+        case 'slotWin': [523, 659, 784, 1047, 784, 1047].forEach((f, i) => s.tone(f, 0.16, 'triangle', 0.16, i * 0.1)); break;
         default: break;
       }
     },

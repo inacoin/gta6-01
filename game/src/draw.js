@@ -5,6 +5,9 @@ import { CFG, MODELS } from './config.js';
 import { districtOf, roadAt } from './city.js';
 import { MISSIONS, ACTS, actOf, currentStage } from './missions.js';
 import { clamp } from './rng.js';
+import { isStorm, weatherLabel, rainDrop } from './weather.js';
+import { drawCasino } from './casino.js';
+import { playerBoat } from './sim.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -135,6 +138,33 @@ function drawCar(ctx, car, clock, dark, dusk) {
   ctx.restore();
 }
 
+function drawBoat(ctx, boat, clock) {
+  const bob = Math.sin(clock * 1.2 + boat.x) * 2;
+  ctx.save();
+  ctx.translate(boat.x, boat.y + bob);
+  ctx.rotate(boat.angle);
+  // Hull with a white stripe, windshield and outboard motor.
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(2, 4, 28, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = boat.color;
+  roundRect(ctx, -26, -11, 52, 22, 9);
+  ctx.fill();
+  ctx.fillStyle = '#fdfefe';
+  ctx.fillRect(-20, -11, 40, 5);
+  ctx.fillStyle = '#1b2631';
+  roundRect(ctx, 2, -8, 14, 16, 3);
+  ctx.fill();
+  ctx.fillStyle = '#2c3e50';
+  ctx.fillRect(-30, -6, 6, 12);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 8px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('LANCHA', 0, 4);
+  ctx.restore();
+}
+
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -243,6 +273,11 @@ function drawHeli(ctx, h, state) {
 export function render(state, ctx, view) {
   const { w, h } = view;
   const p = state.player;
+  // Casino Oro interior replaces the whole street view.
+  if (state.casino && state.casino.inside) {
+    drawCasino(ctx, state, view);
+    return;
+  }
   const camX = clamp(p.x - w / 2, 0, Math.max(0, state.city.size - w));
   const camY = clamp(p.y - h / 2, 0, Math.max(0, state.city.size - h));
   const hour = state.time / 3600;
@@ -250,17 +285,22 @@ export function render(state, ctx, view) {
   const night = light.name === 'night';
   const dusk = light.name === 'dusk';
   const dark = night || dusk;
+  // A storm darkens the ground and the roads and soaks everything.
+  const storm = isStorm(state);
+  const ground = storm ? '#26332a' : light.ground;
+  const road = storm ? '#20242a' : light.road;
 
   // --- ground
-  ctx.fillStyle = light.ground;
+  ctx.fillStyle = ground;
   ctx.fillRect(0, 0, w, h);
   ctx.save();
   ctx.translate(-camX, -camY);
-  // Beach sand + sea along the south edge.
+  // Beach sand + a proper sea along the south edge: 140px of open water so
+  // the Lancha has somewhere to sail, not just a puddle at the map edge.
   ctx.fillStyle = dusk ? '#e8a04c' : '#f4d58d';
   ctx.fillRect(0, state.city.size - 2 * CFG.pitch, state.city.size, 2 * CFG.pitch);
   ctx.fillStyle = night ? '#0e2a47' : dusk ? '#c96f3f' : '#2a9d8f';
-  ctx.fillRect(0, state.city.size - 60, state.city.size, 60);
+  ctx.fillRect(0, state.city.size - 140, state.city.size, 140);
   // Wave lines on the sea.
   ctx.strokeStyle = night ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.45)';
   ctx.lineWidth = 2;
@@ -269,6 +309,11 @@ export function render(state, ctx, view) {
     ctx.beginPath();
     ctx.moveTo(wx, wy);
     ctx.quadraticCurveTo(wx + 14, wy - 5, wx + 28, wy);
+    ctx.stroke();
+    const wy2 = state.city.size - 104 + Math.sin(state.clock * 1.1 + wx * 1.7) * 4;
+    ctx.beginPath();
+    ctx.moveTo(wx + 60, wy2);
+    ctx.quadraticCurveTo(wx + 74, wy2 - 5, wx + 88, wy2);
     ctx.stroke();
   }
   // Wooden piers reaching into the sea, with boats bobbing beside them.
@@ -306,7 +351,7 @@ export function render(state, ctx, view) {
     ctx.restore();
   }
   // Roads.
-  ctx.fillStyle = light.road;
+  ctx.fillStyle = road;
   for (let i = 0; i <= CFG.blocks; i++) {
     ctx.fillRect(roadAt(i) - CFG.road / 2, 0, CFG.road, state.city.size);
     ctx.fillRect(0, roadAt(i) - CFG.road / 2, state.city.size, CFG.road);
@@ -483,6 +528,31 @@ export function render(state, ctx, view) {
       ctx.fillRect(b.x + b.w / 2 - 2, b.y - 8, 4, 8);
     }
   }
+  // Casino Oro: gold door sign on the street, pulsing so the entrance reads.
+  {
+    const cz = state.city.places.casino;
+    const pulse = 0.5 + Math.sin(state.clock * 3) * 0.2;
+    ctx.fillStyle = `rgba(241,196,15,${pulse.toFixed(2)})`;
+    ctx.fillRect(cz.x - 26, cz.y - 34, 52, 18);
+    ctx.fillStyle = '#1a1a1a';
+    ctx.font = 'bold 9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('CASINO', cz.x, cz.y - 21);
+    ctx.fillStyle = '#b7950b';
+    ctx.fillRect(cz.x - 10, cz.y - 14, 20, 14);
+    ctx.textAlign = 'left';
+    // "E — MASUK" hint when the player is close on foot.
+    if (!state.player.car && !state.player.boat) {
+      const d2 = (state.player.x - cz.x) * (state.player.x - cz.x) + (state.player.y - cz.y) * (state.player.y - cz.y);
+      if (d2 < 130 * 130) {
+        ctx.fillStyle = '#ffe066';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('E — MASUK CASINO', cz.x, cz.y - 44);
+        ctx.textAlign = 'left';
+      }
+    }
+  }
   // Shipping containers in the dock / industrial blocks.
   for (const c of state.city.containers) {
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
@@ -552,6 +622,7 @@ export function render(state, ctx, view) {
   }
   // Cars, peds, gang, cops, heli, player.
   for (const car of state.cars) drawCar(ctx, car, state.clock, dark, dusk);
+  for (const boat of state.boats) drawBoat(ctx, boat, state.clock);
   for (const ped of state.peds) drawPerson(ctx, ped.x, ped.y, ped.angle, ped.color, null, dusk);
   for (const g of state.gang) {
     drawPerson(ctx, g.x, g.y, Math.atan2(p.y - g.y, p.x - g.x), '#7b2d26', '!', dusk);
@@ -629,6 +700,50 @@ export function render(state, ctx, view) {
     ctx.fillStyle = `rgba(231,76,60,${clamp(state.flash, 0, 0.4)})`;
     ctx.fillRect(0, 0, w, h);
   }
+  if (storm) {
+    // Storm clouds drifting over the top of the frame.
+    ctx.fillStyle = 'rgba(16,20,36,0.5)';
+    for (let i = 0; i < 4; i++) {
+      const cx = ((i * 340 + state.clock * 12) % (w + 400)) - 200;
+      const cy = 30 + i * 26;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, 220, 34, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Rain streaks, slanted by the wind — laid out from the clock, so a
+    // frozen screenshot repaints the exact same rain every frame.
+    ctx.strokeStyle = 'rgba(180,200,255,0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i < 130; i++) {
+      const d = rainDrop(i, w, h, state.clock);
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x - 3, d.y + d.len);
+    }
+    ctx.stroke();
+    // Lightning: white flash + the bolt itself while the strike is fresh.
+    if (state.weather.flash > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${(state.weather.flash * 0.35).toFixed(3)})`;
+      ctx.fillRect(0, 0, w, h);
+      if (state.weather.flash > 0.55) {
+        const bx = state.weather.boltX * w;
+        let seed = state.weather.boltSeed || 1;
+        const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+        ctx.strokeStyle = 'rgba(255,255,220,0.95)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        let x = bx;
+        let y = 0;
+        ctx.moveTo(x, y);
+        while (y < h * 0.42) {
+          y += 26 + rnd() * 30;
+          x += (rnd() - 0.5) * 70;
+          ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    }
+  }
 
   drawHud(state, ctx, view);
   if (state.screen === 'title') drawTitle(state, ctx, view);
@@ -682,7 +797,7 @@ function drawHud(state, ctx, view) {
   ctx.font = '13px sans-serif';
   const hh = String(Math.floor(state.time / 3600)).padStart(2, '0');
   const mm = String(Math.floor((state.time % 3600) / 60)).padStart(2, '0');
-  ctx.fillText(`${hh}:${mm} ${phaseLabel(state.time / 3600)}  ·  🔫 ${p.mag}/${p.reserve}`, w - 22, 60);
+  ctx.fillText(`${hh}:${mm} ${phaseLabel(state.time / 3600)} ${weatherLabel(state)}  ·  🔫 ${p.mag}/${p.reserve}`, w - 22, 60);
   ctx.textAlign = 'left';
   // Wanted stars, top centre.
   ctx.textAlign = 'center';
@@ -732,8 +847,8 @@ function drawHud(state, ctx, view) {
     ctx.textAlign = 'left';
     ctx.fillText(`▶ ${stage.text.slice(0, 52)}${dist}`, 22, h - 72);
   }
-  // Speedometer when driving.
-  const car = state.player.car !== null ? state.cars.find((c) => c.id === state.player.car) : null;
+  // Speedometer when driving (car or boat).
+  const car = state.player.car !== null ? state.cars.find((c) => c.id === state.player.car) : playerBoat(state);
   if (car) {
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
     roundRect(ctx, w - 132, h - 92, 120, 58, 8);
@@ -783,7 +898,7 @@ function drawMinimap(state, ctx, view) {
   ctx.fillStyle = '#f4d58d';
   ctx.fillRect(x0, y0 + S - (2 * CFG.pitch) * k, S, (2 * CFG.pitch) * k);
   ctx.fillStyle = '#2a9d8f';
-  ctx.fillRect(x0, y0 + S - 60 * k, S, 60 * k);
+  ctx.fillRect(x0, y0 + S - 140 * k, S, 140 * k);
   ctx.strokeStyle = '#7f8c8d';
   ctx.lineWidth = 2;
   for (let i = 0; i <= CFG.blocks; i++) {
@@ -807,6 +922,7 @@ function drawMinimap(state, ctx, view) {
   for (const pc of state.parcels) if (!pc.taken) dot(pc.x, pc.y, '#f1c40f', 2);
   for (const g of state.gang) dot(g.x, g.y, '#e74c3c', 3);
   for (const c of state.cops) dot(c.x, c.y, '#3498db', 3);
+  for (const b of state.boats) dot(b.x, b.y, '#5dade2', 3);
   if (state.heli) dot(state.heli.x, state.heli.y, '#ecf0f1', 4);
   // Player arrow, pointing the way they face.
   ctx.save();
@@ -840,7 +956,7 @@ function drawTitle(state, ctx, view) {
   ctx.fillText('Kejahatan Terbuka di Kota Pantai', w / 2, h / 2 - 72);
   // Feature chips: the headline numbers a judge reads at a glance.
   ctx.font = 'bold 14px sans-serif';
-  const chips = ['12 MISI', '3 BABAK', 'SIANG / MALAM', 'HELI POLISI', 'FINALE HEIST'];
+  const chips = ['13 MISI', '3 BABAK', 'BADAI & PETIR', 'KASINO & SLOT', 'PERAHU LAUT', 'HELI POLISI', 'FINALE HEIST'];
   const chipW = 140;
   const gap = 10;
   const totalW = chips.length * chipW + (chips.length - 1) * gap;
@@ -856,8 +972,8 @@ function drawTitle(state, ctx, view) {
   ctx.font = '15px sans-serif';
   ctx.fillStyle = '#d5dbdb';
   const lines = [
-    'Curi mobil, kabur dari polisi, dan selesaikan 12 misi Doña Carmen dalam 3 babak — taksi, balapan, sampai perampokan final.',
-    'WASD gerak / kemudi · SHIFT lari · E curi & keluar mobil · Klik tembak · R isi peluru',
+    'Curi mobil, kabur dari polisi, dan selesaikan 13 misi Doña Carmen dalam 3 babak — taksi, balapan, heist, dan kabur lewat laut.',
+    'Badai hujan + petir, Casino Oro dengan mesin slot $25, dan perahu Lancha di laut. WASD gerak / kemudi · SHIFT lari · E curi mobil · Klik tembak · R isi peluru',
     'SPACE rem tangan · N mulai misi · H bantuan · M suara · ESC jeda',
   ];
   lines.forEach((l, i) => ctx.fillText(l, w / 2, h / 2 - 8 + i * 24));
@@ -910,7 +1026,7 @@ function drawPause(state, ctx, view) {
   }
   ctx.fillStyle = '#95a5a6';
   ctx.font = '12px sans-serif';
-  ctx.fillText(`Paket Carmen: ${state.stats.parcels}/8  ·  Uang: $${state.cash}`, w / 2, y + 8);
+  ctx.fillText(`Paket Carmen: ${state.stats.parcels}/8  ·  Uang: $${state.cash}  ·  Slot: ${state.stats.slots || 0} putaran, menang $${state.stats.slotWon || 0}`, w / 2, y + 8);
   ctx.textAlign = 'left';
 }
 

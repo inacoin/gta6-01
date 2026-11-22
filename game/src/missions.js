@@ -1,4 +1,4 @@
-// The story in three acts: 12 jobs from fixer Doña Carmen. Act 1 is small
+// The story in three acts: 13 jobs from fixer Doña Carmen. Act 1 is small
 // work for a newcomer, Act 2 builds the name, Act 3 ends in one last heist.
 // A mission is a list of stages; a stage is done when its `done` check passes.
 // Stages can spawn gangsters, set the heat, or demand the player hold a spot.
@@ -10,7 +10,7 @@ import { CFG } from './config.js';
 export const ACTS = [
   { name: 'Babak 1 — Pendatang', from: 0, to: 3, tagline: 'Baru tiba di Costa Verde. Carmen memberimu pekerjaan kecil.' },
   { name: 'Babak 2 — Naik Daun', from: 4, to: 7, tagline: 'Namamu mulai dikenal. Pekerjaan makin besar, musuh makin banyak.' },
-  { name: 'Babak 3 — El Gran Golpe', from: 8, to: 11, tagline: 'Satu pukulan terakhir: rampok habis-habisan, lalu hilang.' },
+  { name: 'Babak 3 — El Gran Golpe', from: 8, to: 12, tagline: 'Satu pukulan terakhir: rampok habis-habisan, lalu hilang lewat laut.' },
 ];
 
 export function actOf(idx) {
@@ -384,6 +384,37 @@ export const MISSIONS = [
           s.banner = 'Perahu menunggumu di pantai. LARI!';
           s.bannerT = 4;
         },
+      },
+    ],
+  },
+  {
+    name: 'Misi 13 — Huida por Mar',
+    brief: 'Kabur lewat laut: naik perahu Lancha di Playa Verde dan layar sampai ujung timur sebelum polisi menutup pantai.',
+    reward: CFG.missionReward[12],
+    stages: [
+      {
+        text: 'Pergi ke perahu Lancha di Playa Verde',
+        target: (s) => atPlace(s, 'beach'), r: 90,
+        onEnter(s) {
+          s.banner = 'Perahu Lancha menunggumu di tepi laut.';
+          s.bannerT = 4;
+        },
+      },
+      {
+        text: 'Naik perahu (tekan E di dekatnya)',
+        target: (s) => ({ x: s.boats[0].x, y: s.boats[0].y }), r: 80,
+        board: true,
+        done: (s) => s.player.boat !== null,
+      },
+      {
+        text: 'KABUR! Layar ke ujung timur laut — 90 detik!',
+        target: (s) => ({ x: s.city.size - 90, y: s.city.size - 30 }), r: 90,
+        timeLimit: 90,
+        onEnter(s) {
+          s.banner = 'Layar ke timur! Jangan berhenti sampai laut lepas!';
+          s.bannerT = 4;
+        },
+        done: (s) => s.player.boat !== null && near(s, { x: s.city.size - 90, y: s.city.size - 30 }, 90),
       },
     ],
   },

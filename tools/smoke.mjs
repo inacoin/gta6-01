@@ -210,10 +210,54 @@ try {
   const bankOk = await evl('!!__game.state.city.places.bank && __game.state.city.places.bank.x > 0');
   check('bank / hideout places exist', bankOk);
 
-  // --- Round 4: story structure (12 missions, 3 acts) + day/night cycle. ---
-  check('12 missions in 3 acts', (await evl('__game.missionCount()')) === 12 && (await evl('__game.actCount()')) === 3);
+  // --- Round 5: weather, casino, boats. ---
+  await evl(`__game.setWeather('storm')`);
+  check('storm weather sets in', (await evl('__game.weather()')) === 'storm');
+  await evl(`__game.setWeather('clear')`);
+  check('weather clears again', (await evl('__game.weather()')) === 'clear');
+  const cashBefore = await evl('__game.state.cash');
+  await evl('__game.enterCasino()');
+  check('casino interior opens', (await evl('__game.state.casino.inside')) === true);
+  const spin = await evl('__game.spinSlot()');
+  check('slot spin returns 3 reels', !!spin && spin.reels && spin.reels.length === 3, JSON.stringify(spin));
+  const cashAfter = await evl('__game.state.cash');
+  check('slot spin settles cash exactly', cashAfter === cashBefore - 25 + spin.win, `cash ${cashBefore} -> ${cashAfter}, win=${spin.win}`);
+  // A real E press inside the casino spins again (stand by a machine first).
+  await evl('__game.state.casino.x = 350; __game.state.casino.y = 192;');
+  await evl('__game.input.enter = true');
+  await sleep(300);
+  const spins = await evl('__game.state.casino.spins');
+  check('E inside casino spins the slot', spins >= 2, `spins=${spins}`);
+  await evl('__game.exitCasino()');
+  check('exit casino back to street', (await evl('__game.state.casino.inside')) === false);
+
+  // Boats: board the Lancha with E, sail, step off onto the sand.
+  if (await evl('__game.state.player.car !== null')) {
+    await evl('__game.input.enter = true');
+    await sleep(300);
+  }
+  await evl('(() => { const b = __game.state.boats[0]; __game.teleport(b.x, b.y - 40); })()');
+  await sleep(150);
+  await evl('__game.input.enter = true');
+  await sleep(300);
+  let stBoat = await status();
+  check('board boat with E', stBoat.inBoat === true, JSON.stringify(stBoat));
+  const bx0 = stBoat.x;
+  await evl('__game.input.up = true');
+  await sleep(1500);
+  await evl('__game.input.up = false');
+  stBoat = await status();
+  check('boat sails (wake + movement)', Math.abs(stBoat.x - bx0) > 50, `x ${bx0} -> ${stBoat.x}`);
+  await evl('__game.input.enter = true');
+  await sleep(300);
+  stBoat = await status();
+  check('exit boat onto sand', stBoat.inBoat === false);
+
+  // --- Round 4: story structure (13 missions, 3 acts) + day/night cycle. ---
+  check('13 missions in 3 acts', (await evl('__game.missionCount()')) === 13 && (await evl('__game.actCount()')) === 3);
   const names = await evl('__game.missionNames()');
   check('finale is Misi 12 El Gran Golpe', names[11] === 'Misi 12 — El Gran Golpe', names[11]);
+  check('Misi 13 Huida por Mar closes the story', names[12] === 'Misi 13 — Huida por Mar', names[12]);
   check('dusk phase at 18:20', await evl('__game.setTime(18.4 * 3600); __game.phase()') === 'dusk');
   check('day phase at noon', await evl('__game.setTime(12 * 3600); __game.phase()') === 'day');
   check('night phase at 22:00', await evl('__game.setTime(22 * 3600); __game.phase()') === 'night');
@@ -277,8 +321,9 @@ try {
   };
   const driveMission = async (idx, timeoutMs) => {
     // Clean slate: a previous test mission may still be active (startMission
-    // refuses while one is), so reset the mission machine first.
-    await evl('__game.state.mission.active = false; __game.state.mission.stage = 0; __game.state.mission.holdT = 0; __game.state.mission.entered = false; __game.state.gang.length = 0; __game.state.bullets.length = 0;');
+    // refuses while one is), so reset the mission machine first. Boats go
+    // back to their moorings and the player leaves the casino, if any.
+    await evl('__game.state.mission.active = false; __game.state.mission.stage = 0; __game.state.mission.holdT = 0; __game.state.mission.entered = false; __game.state.gang.length = 0; __game.state.bullets.length = 0; __game.state.player.boat = null; __game.state.casino.inside = false; __game.state.boats.forEach((b) => { b.x = b.bx; b.y = b.by; b.angle = 0; b.speed = 0; }); __game.state.player.mag = 12; __game.state.player.reserve = 240;');
     await evl(`__game.state.mission.idx = ${idx}`);
     await evl('__game.startMission()');
     // Start clean: no leftover heat or cops from the previous mission's
@@ -309,6 +354,22 @@ try {
         await sleep(200);
         continue;
       }
+      // Vault-hold stages (Misi 12): the hold is protected from busts and
+      // traffic rams by design, so the foot cops closing in are harmless —
+      // stay on the vault and let the hold finish instead of chasing them
+      // (each detour decays the hold timer and burns ammo).
+      if (info.hold > 0 && info.target) {
+        await evl(`__game.teleport(${info.target.x}, ${info.target.y})`);
+        await sleep(200);
+        continue;
+      }
+      // Boarding stage (Misi 13): stand on the boat and press E.
+      if (info.board && info.target) {
+        await evl(`__game.teleport(${info.target.x}, ${info.target.y})`);
+        await evl('__game.input.enter = true');
+        await sleep(300);
+        continue;
+      }
       const hostiles = info.gang > 0 || (await evl('__game.state.cops.filter((c) => c.kind === "foot").length')) > 0;
       if (hostiles) {
         if (!(await clearHostiles())) return false;
@@ -328,7 +389,9 @@ try {
   check('mission 11 Dinero Sucio completes', m11, `missions done=${(await status()).mission}`);
   const m12 = await driveMission(11, 120000);
   check('mission 12 El Gran Golpe finale completes', m12, `missions done=${(await status()).mission}`);
-  check('all 12 missions done, win screen', (await status()).mission >= 12 && (await status()).screen === 'win', `screen=${(await status()).screen}`);
+  const m13 = await driveMission(12, 90000);
+  check('mission 13 Huida por Mar completes', m13, `missions done=${(await status()).mission}`);
+  check('all 13 missions done, win screen', (await status()).mission >= 13 && (await status()).screen === 'win', `screen=${(await status()).screen}`);
 
   check('no page errors during smoke test', pageErrors.length === 0, pageErrors.join(' | ').slice(0, 300));
   cdp.close();

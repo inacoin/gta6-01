@@ -1,13 +1,15 @@
 // Costa Verde boot + game loop. Owns the canvas, the frame clock, screen
 // transitions (title / pause / wasted / busted / win) and the debug hooks the
 // smoke tests use. All rules live in sim.js; this file only drives them.
-import { createGame, stepGame, playerCar } from './sim.js';
+import { createGame, stepGame, playerCar, playerBoat } from './sim.js';
 import { render, phaseName } from './draw.js';
 import { createInput } from './input.js';
 import { createSound } from './sound.js';
 import { saveGame, loadGame, applySave, hasSave } from './store.js';
 import { stageShot } from './shots.js';
 import { startMission, MISSIONS, ACTS, currentStage, currentTarget } from './missions.js';
+import { setStorm, setClear } from './weather.js';
+import { enterCasino, exitCasino, spinSlots } from './casino.js';
 import { clamp } from './rng.js';
 
 const canvas = document.getElementById('game');
@@ -126,6 +128,9 @@ function frame(now) {
     parcels: state.stats.parcels,
     heli: !!state.heli,
     inCar: state.player.car !== null,
+    inBoat: state.player.boat !== null,
+    inCasino: state.casino.inside,
+    weather: state.weather.kind,
     x: Math.round(state.player.x),
     y: Math.round(state.player.y),
     gang: state.gang.length,
@@ -145,8 +150,16 @@ window.__game = {
     state.player.y = y;
     const car = playerCar(state);
     if (car) { car.x = x; car.y = y; }
+    const boat = playerBoat(state);
+    if (boat) { boat.x = x; boat.y = y; }
   },
   setHeat: (v) => { state.heat = v; },
+  // Weather + casino hooks for the smoke tests.
+  setWeather: (kind) => { if (kind === 'storm') setStorm(state); else setClear(state); },
+  weather: () => state.weather.kind,
+  enterCasino: () => enterCasino(state),
+  exitCasino: () => exitCasino(state),
+  spinSlot: () => spinSlots(state),
   // Time-of-day + story hooks for the smoke tests.
   setTime: (seconds) => { state.time = ((seconds % 86400) + 86400) % 86400; },
   phase: () => phaseName(state.time / 3600),
@@ -161,6 +174,7 @@ window.__game = {
       text: stage.text, hasTarget: !!target,
       target: target ? { x: Math.round(target.x), y: Math.round(target.y) } : null,
       hold: stage.hold || 0, timeLimit: stage.timeLimit || 0,
+      board: !!stage.board,
       gang: state.gang.length, active: state.mission.active,
     } : { idx: state.mission.idx, stage: state.mission.stage, active: state.mission.active, gang: state.gang.length };
   },
@@ -187,6 +201,8 @@ if (shotName) {
       screen: state.screen, cash: state.cash, stars: state.stars,
       hp: Math.round(state.player.hp), mission: state.mission.idx,
       missionActive: state.mission.active, inCar: state.player.car !== null,
+      inBoat: state.player.boat !== null, inCasino: state.casino.inside,
+      weather: state.weather.kind,
       x: Math.round(state.player.x), y: Math.round(state.player.y),
       gang: state.gang.length, cops: state.cops.length,
     });

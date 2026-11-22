@@ -99,11 +99,12 @@ export function buildCity(seed = 7) {
       if (use === 'plaza' || use === 'beach') {
         plazas.push({ x: x0, y: y0, size, kind: use });
         if (use === 'beach') {
-          // Palms and umbrellas scattered on the sand.
+          // Palms and umbrellas scattered on the sand — kept clear of the
+          // sea, which starts 140px up from the map edge.
           const n = int(rng, 3, 5);
           for (let i = 0; i < n; i++) {
             const px = x0 + range(rng, 20, size - 20);
-            const py = y0 + range(rng, 20, size - 20);
+            const py = y0 + range(rng, 20, Math.min(size - 20, 3040 - y0));
             if (chance(rng, 0.55)) beachProps.push({ x: px, y: py, kind: 'palm' });
             else beachProps.push({ x: px, y: py, kind: 'umbrella', color: pick(rng, ['#e74c3c', '#f39c12', '#3498db', '#9b59b6']) });
           }
