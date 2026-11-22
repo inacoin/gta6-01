@@ -30,11 +30,14 @@ export function createCasino(rng) {
     w: 1000, h: 560,
     machines,
     npcs: [
-      { x: 250, y: 330, color: '#e74c3c', table: true },
+      // The two regulars stand on the far side of their table now: at
+      // y=330 their bodies covered the BLACKJACK label in screenshots.
+      { x: 250, y: 272, color: '#e74c3c', table: true },
       { x: 430, y: 330, color: '#3498db', table: true },
-      { x: 700, y: 330, color: '#2ecc71', table: true },
+      { x: 700, y: 272, color: '#2ecc71', table: true },
       { x: 830, y: 330, color: '#f39c12', table: true },
       { x: 610, y: 120, color: '#9b59b6', table: false }, // a regular at the slots
+      { x: 860, y: 398, color: '#1abc9c', table: false }, // watching the roulette
     ],
     lastSpin: null, // { reels, win, bet }
     msg: '',
@@ -211,6 +214,30 @@ export function drawCasino(ctx, state, view) {
   ctx.arc(X(500), Y(110), 10, 0, Math.PI * 2);
   ctx.fill();
 
+  // Framed art on the side walls + potted palms in the bottom corners,
+  // so the red carpet is not one flat field.
+  for (const fx of [36, 928]) {
+    ctx.fillStyle = '#f1c40f';
+    ctx.fillRect(X(fx), Y(276), 36, 48);
+    ctx.fillStyle = '#7b241c';
+    ctx.fillRect(X(fx + 4), Y(280), 28, 40);
+    ctx.fillStyle = '#f1c40f';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('★', X(fx + 18), Y(308));
+  }
+  for (const px of [56, 952]) {
+    ctx.fillStyle = '#8d6e63';
+    ctx.fillRect(X(px - 10), Y(508), 20, 18);
+    ctx.fillStyle = '#2d6a4f';
+    ctx.beginPath();
+    ctx.arc(X(px), Y(498), 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#40916c';
+    ctx.beginPath();
+    ctx.arc(X(px - 4), Y(494), 8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   // Slot machines along the top wall.
   const near = nearestMachine(c);
   for (const m of c.machines) {
@@ -293,7 +320,43 @@ export function drawCasino(ctx, state, view) {
       ctx.arc(X(t.x - 30 + i * 30), Y(t.y - 18), 7, 0, Math.PI * 2);
       ctx.fill();
     });
+    // Two face-up cards below the label + a chip stack at the table edge.
+    ctx.fillStyle = '#fdfefe';
+    ctx.fillRect(X(t.x - 16), Y(t.y + 12), 11, 15);
+    ctx.fillRect(X(t.x + 5), Y(t.y + 12), 11, 15);
+    ctx.fillStyle = '#e74c3c';
+    ctx.font = 'bold 9px sans-serif';
+    ctx.fillText('A', X(t.x - 10), Y(t.y + 24));
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillText('K', X(t.x + 11), Y(t.y + 24));
+    for (let s = 0; s < 3; s++) {
+      ctx.fillStyle = ['#e74c3c', '#3498db', '#f1c40f'][s];
+      ctx.beginPath();
+      ctx.arc(X(t.x + 68), Y(t.y + 8 - s * 5), 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
+  // Roulette wheel in the empty bottom-right corner.
+  ctx.fillStyle = '#145a32';
+  ctx.beginPath();
+  ctx.ellipse(X(860), Y(452), 78, 36, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#f1c40f';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.ellipse(X(860), Y(452), 78, 36, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = '#0d3b21';
+  ctx.beginPath();
+  ctx.ellipse(X(860), Y(452), 54, 24, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fdfefe';
+  ctx.beginPath();
+  ctx.arc(X(882), Y(442), 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fdfefe';
+  ctx.font = 'bold 10px sans-serif';
+  ctx.fillText('ROULETTE', X(860), Y(456));
   // NPCs (bobbing gently) and the player.
   for (const n of c.npcs) {
     const bob = Math.sin(state.clock * 2 + n.x) * 2;
@@ -310,18 +373,31 @@ export function drawCasino(ctx, state, view) {
     ctx.arc(X(n.x), Y(n.y + bob - 4), 5, 0, Math.PI * 2);
     ctx.fill();
   }
-  // Player.
+  // Player — 1.5×, with the same gold ring + forward wedge as on the street.
   ctx.fillStyle = 'rgba(0,0,0,0.4)';
   ctx.beginPath();
-  ctx.ellipse(X(c.x), Y(c.y + 12), 12, 6, 0, 0, Math.PI * 2);
+  ctx.ellipse(X(c.x), Y(c.y + 18), 18, 9, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(241,196,15,0.85)';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.arc(X(c.x), Y(c.y), 26, 0, Math.PI * 2);
+  ctx.stroke();
+  const pa = state.player.angle;
+  ctx.fillStyle = '#ffe066';
+  ctx.beginPath();
+  ctx.moveTo(X(c.x + Math.cos(pa) * 34), Y(c.y + Math.sin(pa) * 34));
+  ctx.lineTo(X(c.x + Math.cos(pa + 2.6) * 22), Y(c.y + Math.sin(pa + 2.6) * 22));
+  ctx.lineTo(X(c.x + Math.cos(pa - 2.6) * 22), Y(c.y + Math.sin(pa - 2.6) * 22));
+  ctx.closePath();
   ctx.fill();
   ctx.fillStyle = '#f1c40f';
   ctx.beginPath();
-  ctx.arc(X(c.x), Y(c.y), 12, 0, Math.PI * 2);
+  ctx.arc(X(c.x), Y(c.y), 18, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#f5cba7';
   ctx.beginPath();
-  ctx.arc(X(c.x + Math.cos(state.player.angle) * 4), Y(c.y + Math.sin(state.player.angle) * 4), 5, 0, Math.PI * 2);
+  ctx.arc(X(c.x + Math.cos(pa) * 6), Y(c.y + Math.sin(pa) * 6), 7, 0, Math.PI * 2);
   ctx.fill();
 
   // Gold door mat at the bottom centre.
@@ -359,8 +435,16 @@ export function drawCasino(ctx, state, view) {
   ctx.fillStyle = '#fff';
   ctx.font = '13px sans-serif';
   ctx.fillText('CASINO ORO · El Centro', 110, 42);
-  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  // Controls hint on a dark pill, inset from the edges so the bar is
+  // fully inside the frame.
+  const hint = 'WASD jalan · E main slot / keluar · ESC jeda';
+  ctx.textAlign = 'left';
   ctx.font = '11px sans-serif';
-  ctx.fillText('WASD jalan · E main slot / keluar · ESC jeda', 12, h - 12);
+  const hw = ctx.measureText(hint).width;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  roundRect(ctx, 12, h - 30, hw + 20, 20, 8);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.fillText(hint, 22, h - 16);
   ctx.textAlign = 'left';
 }

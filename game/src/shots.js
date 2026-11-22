@@ -3,18 +3,18 @@
 // by a tiny scripted driver, so the frame is what real play looks like and
 // the same seed always gives the same frame.
 //
-// Round 5 staging: the title at golden hour, then the three new headline
-// features — a night thunderstorm drive (rain + lightning), the Casino Oro
-// interior mid-jackpot, and the Misi 13 sea escape by boat at dusk.
+// Round 7 staging: a golden-hour police chase for the first shot, then the
+// three headline features — a night thunderstorm drive (rain + lightning),
+// the Casino Oro interior mid-jackpot, and the Misi 13 sea escape by boat
+// at dusk. No title screen in the set anymore: the title still exists in
+// the game, it is just not a screenshot.
 import { startMission } from './missions.js';
 import { setStorm } from './weather.js';
 import { enterCasino, spinSlots, SLOT_BET } from './casino.js';
+import { summonPolice } from './sim.js';
+import { roadAt } from './city.js';
 
 const STEP = 1 / 60;
-// The clock runs a full day in 240 real seconds, so one second of staging
-// moves the game clock 6 minutes. Staging starts before dusk so the final
-// frame lands in it (17:00–19:30 is golden hour).
-const DUSK_AT = 17.6;
 
 function blankInput() {
   return {
@@ -112,8 +112,35 @@ export function stageShot(name, state, stepFn) {
     state.bannerT = 5;
     return { screen: 'play' };
   }
-  // start: title screen over a living city at golden hour, a few seconds in.
-  state.time = DUSK_AT * 3600;
-  for (let i = 0; i < 5 / STEP; i++) stepFn(state, blankInput(), STEP);
-  return { screen: 'title' };
+  // start: a golden-hour police chase down the El Centro avenue, not the
+  // title screen. The player has just stolen a Flecha, heat is at 4
+  // stars, three patrol cars + the helicopter are closing in. Everything
+  // plays forward with the real rules — the theft, the heat, the summoned
+  // cops and the drive — so the frame is what real play looks like.
+  state.time = 18.2 * 3600;
+  const flecha = state.cars.find((c) => c.parked && c.model === 2)
+    || state.cars.find((c) => c.parked);
+  if (!flecha) return { screen: 'title' };
+  state.player.x = flecha.x - 24;
+  state.player.y = flecha.y;
+  stepFn(state, { ...blankInput(), enter: true }, STEP); // steals the car
+  const car = state.cars.find((x) => x.id === state.player.car);
+  if (car) {
+    car.angle = 0;
+    car.x = roadAt(2);
+    car.y = roadAt(5);
+    state.player.x = car.x;
+    state.player.y = car.y;
+  }
+  state.heat = 70;
+  state.stars = 4;
+  summonPolice(state); // 3 patrol cars + 3 foot cops around the avenue
+  for (let i = 0; i < 3 / STEP; i++) {
+    const input = blankInput();
+    input.up = true;
+    stepFn(state, input, STEP);
+  }
+  state.banner = 'KEJAR-KEJARAN DI EL CENTRO — 4 bintang, polisi mengejarmu!';
+  state.bannerT = 5;
+  return { screen: 'play' };
 }

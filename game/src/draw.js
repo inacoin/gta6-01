@@ -4,7 +4,7 @@
 import { CFG, MODELS } from './config.js';
 import { districtOf, roadAt } from './city.js';
 import { MISSIONS, ACTS, actOf, currentStage } from './missions.js';
-import { clamp } from './rng.js';
+import { clamp, hash2 } from './rng.js';
 import { isStorm, weatherLabel, rainDrop } from './weather.js';
 import { drawCasino } from './casino.js';
 import { playerBoat } from './sim.js';
@@ -44,13 +44,16 @@ export function districtAt(state, x, y) {
   return districtOf(col, row);
 }
 
-function drawCar(ctx, car, clock, dark, dusk) {
+// Cars render 1.5× their old size so the player's ride reads at a glance;
+// collision and driving stay on the old radii (config.js) — only the paint
+// is bigger. The player's car also gets a gold ring + a forward chevron.
+function drawCar(ctx, car, clock, dark, dusk, isPlayer) {
   ctx.save();
   ctx.translate(car.x, car.y);
   ctx.rotate(car.angle);
   const model = MODELS[car.model] || MODELS[0];
-  const w = model.len || 46;
-  const h = 22;
+  const w = (model.len || 46) * 1.5;
+  const h = 22 * 1.5;
   const isTruck = model.name === 'Camion';
   const isTaxi = model.name === 'Taxi';
   // At golden hour the sun is low: shadows stretch long to the north-east.
@@ -105,13 +108,13 @@ function drawCar(ctx, car, clock, dark, dusk) {
     // Checker stripe + roof sign.
     for (let i = 0; i < 5; i++) {
       ctx.fillStyle = i % 2 ? '#fff' : '#111';
-      ctx.fillRect(-w / 2 + 12 + i * 5, -h / 2 + 1, 5, 4);
-      ctx.fillRect(-w / 2 + 12 + i * 5, h / 2 - 5, 5, 4);
+      ctx.fillRect(-w / 2 + 12 + i * 7, -h / 2 + 1, 7, 5);
+      ctx.fillRect(-w / 2 + 12 + i * 7, h / 2 - 6, 7, 5);
     }
     ctx.fillStyle = '#f1c40f';
-    ctx.fillRect(-5, -h / 2 - 4, 10, 5);
+    ctx.fillRect(-7, -h / 2 - 5, 14, 6);
     ctx.fillStyle = '#111';
-    ctx.font = 'bold 5px sans-serif';
+    ctx.font = 'bold 7px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('TAXI', 0, -h / 2 - 0.5);
   }
@@ -119,7 +122,7 @@ function drawCar(ctx, car, clock, dark, dusk) {
     ctx.fillStyle = '#eaf2f8';
     ctx.fillRect(-6, -h / 2, 12, h);
     ctx.fillStyle = '#e74c3c';
-    ctx.font = 'bold 7px sans-serif';
+    ctx.font = 'bold 8px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('POLISI', 0, 3);
     // Flashing light bar.
@@ -135,10 +138,35 @@ function drawCar(ctx, car, clock, dark, dusk) {
     ctx.arc(-w / 2, 0, 6 + Math.random() * 5, 0, Math.PI * 2);
     ctx.fill();
   }
+  if (isPlayer) {
+    // Gold selection ring + a forward chevron, so the player's car is the
+    // first thing the eye finds in a busy frame.
+    ctx.fillStyle = 'rgba(241,196,15,0.12)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, w / 2 + 12, h / 2 + 14, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(241,196,15,0.8)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, w / 2 + 12, h / 2 + 14, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#ffe066';
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(w / 2 + 24, 0);
+    ctx.lineTo(w / 2 + 8, -8);
+    ctx.lineTo(w / 2 + 8, 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
-function drawBoat(ctx, boat, clock) {
+// The Lancha renders 1.5× now, with the same gold ring + chevron as the
+// player's car when the player is sailing it.
+function drawBoat(ctx, boat, clock, isPlayer) {
   const bob = Math.sin(clock * 1.2 + boat.x) * 2;
   ctx.save();
   ctx.translate(boat.x, boat.y + bob);
@@ -146,22 +174,39 @@ function drawBoat(ctx, boat, clock) {
   // Hull with a white stripe, windshield and outboard motor.
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   ctx.beginPath();
-  ctx.ellipse(2, 4, 28, 12, 0, 0, Math.PI * 2);
+  ctx.ellipse(3, 6, 42, 18, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = boat.color;
-  roundRect(ctx, -26, -11, 52, 22, 9);
+  roundRect(ctx, -39, -16.5, 78, 33, 13);
   ctx.fill();
   ctx.fillStyle = '#fdfefe';
-  ctx.fillRect(-20, -11, 40, 5);
+  ctx.fillRect(-30, -16.5, 60, 7);
   ctx.fillStyle = '#1b2631';
-  roundRect(ctx, 2, -8, 14, 16, 3);
+  roundRect(ctx, 3, -12, 21, 24, 4);
   ctx.fill();
   ctx.fillStyle = '#2c3e50';
-  ctx.fillRect(-30, -6, 6, 12);
+  ctx.fillRect(-45, -9, 9, 18);
   ctx.fillStyle = '#fff';
-  ctx.font = 'bold 8px sans-serif';
+  ctx.font = 'bold 11px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('LANCHA', 0, 4);
+  ctx.fillText('LANCHA', 0, 5);
+  if (isPlayer) {
+    ctx.strokeStyle = 'rgba(241,196,15,0.8)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 52, 30, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#ffe066';
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(62, 0);
+    ctx.lineTo(46, -9);
+    ctx.lineTo(46, 9);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -175,29 +220,100 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function drawPerson(ctx, x, y, angle, color, label, dusk) {
+// `scale` enlarges the figure (the player is 1.5×); `ring` adds the gold
+// selection ring + forward wedge, so the player on foot reads instantly.
+function drawPerson(ctx, x, y, angle, color, label, dusk, scale = 1, ring = false) {
   ctx.save();
   ctx.translate(x, y);
   // Long shadow at golden hour, short one the rest of the day.
   ctx.fillStyle = dusk ? 'rgba(60,20,0,0.4)' : 'rgba(0,0,0,0.3)';
   ctx.beginPath();
-  ctx.ellipse(dusk ? 6 : 2, dusk ? 5 : 3, 10, 7, 0, 0, Math.PI * 2);
+  ctx.ellipse(dusk ? 6 * scale : 2 * scale, dusk ? 5 * scale : 3 * scale, 10 * scale, 7 * scale, 0, 0, Math.PI * 2);
   ctx.fill();
+  if (ring) {
+    ctx.strokeStyle = 'rgba(241,196,15,0.85)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, 26, 0, Math.PI * 2);
+    ctx.stroke();
+    const ax = Math.cos(angle);
+    const ay = Math.sin(angle);
+    const px = -ay;
+    const py = ax;
+    ctx.fillStyle = '#ffe066';
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(ax * 34, ay * 34);
+    ctx.lineTo(ax * 20 + px * 7, ay * 20 + py * 7);
+    ctx.lineTo(ax * 20 - px * 7, ay * 20 - py * 7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
   ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.arc(0, 0, 10, 0, Math.PI * 2);
+  ctx.arc(0, 0, 10 * scale, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#f5cba7';
   ctx.beginPath();
-  ctx.arc(Math.cos(angle) * 4, Math.sin(angle) * 4, 5, 0, Math.PI * 2);
+  ctx.arc(Math.cos(angle) * 4 * scale, Math.sin(angle) * 4 * scale, 5 * scale, 0, Math.PI * 2);
   ctx.fill();
   if (label) {
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 9px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(label, 0, -14);
+    ctx.fillText(label, 0, -14 * scale);
   }
   ctx.restore();
+}
+
+// Street + beach furniture, all hash-placed per block so the same seed
+// always builds the same props.
+function drawBench(ctx, x, y) {
+  ctx.fillStyle = '#7e5109';
+  ctx.fillRect(x - 12, y - 3, 24, 6);
+  ctx.fillStyle = '#a67c52';
+  ctx.fillRect(x - 12, y - 8, 24, 4);
+  ctx.fillStyle = '#5d4037';
+  ctx.fillRect(x - 10, y + 3, 3, 4);
+  ctx.fillRect(x + 7, y + 3, 3, 4);
+}
+
+function drawPlanter(ctx, x, y) {
+  ctx.fillStyle = '#8d6e63';
+  ctx.fillRect(x - 7, y - 7, 14, 14);
+  ctx.fillStyle = '#2d6a4f';
+  ctx.beginPath();
+  ctx.arc(x, y - 1, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#40916c';
+  ctx.beginPath();
+  ctx.arc(x - 2, y - 3, 4, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawTowel(ctx, x, y, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x - 9, y - 5, 18, 10);
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.fillRect(x - 9, y - 1, 18, 3);
+}
+
+function drawBeachgoer(ctx, x, y, color, angle) {
+  // Lying on a towel: body ellipse + head, facing `angle`.
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath();
+  ctx.ellipse(x + 2, y + 3, 12, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(x, y, 11, 5, angle, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#f5cba7';
+  ctx.beginPath();
+  ctx.arc(x + Math.cos(angle) * 12, y + Math.sin(angle) * 12, 4, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawPalm(ctx, x, y) {
@@ -431,10 +547,49 @@ export function render(state, ctx, view) {
       ctx.arc(park.x + park.size / 2, park.y + park.size / 2, 26, 0, Math.PI * 2);
       ctx.fill();
     }
+    // Benches + flower dots, so a park reads as a place, not a lawn.
+    const ph = hash2(Math.round(park.x), Math.round(park.y), 7);
+    if (ph < 0.7) drawBench(ctx, park.x + park.size * 0.32, park.y + park.size * 0.72);
+    if (ph < 0.4) drawBench(ctx, park.x + park.size * 0.68, park.y + park.size * 0.28);
+    for (let f = 0; f < 4; f++) {
+      const fh = hash2(Math.round(park.x) + f * 31, Math.round(park.y) + f * 17, 7);
+      ctx.fillStyle = ['#e74c3c', '#f39c12', '#ecf0f1', '#9b59b6'][f];
+      ctx.beginPath();
+      ctx.arc(park.x + 16 + fh * (park.size - 32), park.y + 20 + ((f * 47) % (park.size - 40)), 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
   for (const pl of state.city.plazas) {
     ctx.fillStyle = pl.kind === 'beach' ? '#f4d58d' : '#b08968';
     ctx.fillRect(pl.x, pl.y, pl.size, pl.size);
+    if (pl.kind === 'beach') {
+      // Towels + beachgoers sunbathing, hash-placed per block. Kept clear
+      // of the sea, which starts 140px up from the map edge.
+      const colors = ['#e74c3c', '#3498db', '#f39c12', '#9b59b6', '#2ecc71'];
+      const maxY = Math.max(20, Math.min(pl.size - 48, 3040 - pl.y - 24));
+      for (let i = 0; i < 3; i++) {
+        const hx = hash2(Math.round(pl.x) + i * 13, Math.round(pl.y), 7);
+        const hy = hash2(Math.round(pl.x), Math.round(pl.y) + i * 29, 7);
+        const tx = pl.x + 24 + hx * (pl.size - 48);
+        const ty = pl.y + 24 + hy * maxY;
+        drawTowel(ctx, tx, ty, colors[(i + Math.floor(hx * 5)) % colors.length]);
+        if (i < 2) drawBeachgoer(ctx, tx + 4, ty + 2, ['#e74c3c', '#3498db', '#f39c12', '#2ecc71'][(i + Math.floor(hy * 4)) % 4], hx * Math.PI);
+      }
+    } else {
+      // A plaza gets a fountain, benches and planters.
+      ctx.fillStyle = '#2a9d8f';
+      ctx.beginPath();
+      ctx.arc(pl.x + pl.size / 2, pl.y + pl.size / 2, 16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#d6eaf8';
+      ctx.beginPath();
+      ctx.arc(pl.x + pl.size / 2, pl.y + pl.size / 2, 9, 0, Math.PI * 2);
+      ctx.fill();
+      drawBench(ctx, pl.x + pl.size * 0.5, pl.y + 16);
+      drawBench(ctx, pl.x + pl.size * 0.5, pl.y + pl.size - 16);
+      drawPlanter(ctx, pl.x + 16, pl.y + 16);
+      drawPlanter(ctx, pl.x + pl.size - 16, pl.y + 16);
+    }
   }
   // Street trees on the sidewalk corners, so the roads read green.
   for (const t of state.city.trees) {
@@ -449,6 +604,16 @@ export function render(state, ctx, view) {
     ctx.arc(t.x - 2, t.y - 2, t.r * 0.6, 0, Math.PI * 2);
     ctx.fill();
   }
+  // Street furniture on the sidewalk edge of every block — benches and
+  // planters, hash-placed per block, drawn after the block surface but
+  // before the buildings, so a bench never floats on a roof. Parks and
+  // beach blocks get their own furniture above.
+  for (const bl of state.city.blocks) {
+    if (bl.use === 'park' || bl.use === 'beach') continue;
+    const bh = hash2(bl.col, bl.row, 7);
+    if (bh < 0.4) drawBench(ctx, bl.x + bl.size * 0.5, bl.y + 12);
+    if (bh > 0.6) drawPlanter(ctx, bl.x + 14, bl.y + bl.size - 14);
+  }
   // Palms and umbrellas on the beach.
   for (const bp of state.city.beachProps) {
     if (bp.kind === 'palm') drawPalm(ctx, bp.x, bp.y);
@@ -461,6 +626,21 @@ export function render(state, ctx, view) {
       ctx.quadraticCurveTo(bp.x, bp.y - 18, bp.x + 13, bp.y - 4);
       ctx.closePath();
       ctx.fill();
+      // Umbrella clusters: a second umbrella + a towel + a beachgoer
+      // beside some umbrellas, so the sand reads busy.
+      const uh = hash2(Math.round(bp.x), Math.round(bp.y), 7);
+      if (uh < 0.5) {
+        ctx.fillStyle = '#7e5109';
+        ctx.fillRect(bp.x + 21, bp.y - 4, 2, 12);
+        ctx.fillStyle = bp.color;
+        ctx.beginPath();
+        ctx.moveTo(bp.x + 9, bp.y - 4);
+        ctx.quadraticCurveTo(bp.x + 22, bp.y - 18, bp.x + 35, bp.y - 4);
+        ctx.closePath();
+        ctx.fill();
+        drawTowel(ctx, bp.x + 22, bp.y + 12, '#f39c12');
+        drawBeachgoer(ctx, bp.x + 26, bp.y + 14, '#2ecc71', uh * Math.PI);
+      }
     }
   }
   // Buildings with lit windows at dusk and night, by style.
@@ -491,12 +671,46 @@ export function render(state, ctx, view) {
     }
     ctx.fillStyle = b.roof;
     ctx.fillRect(b.x, b.y, b.w, 5);
-    ctx.fillStyle = dark ? '#ffe066' : '#d6eaf8';
+    // Roof variety, hash-placed per building: AC boxes, a roof garden or
+    // a skylight, plus a parapet line so the roof reads as a roof.
+    ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(b.x + 3, b.y + 3, b.w - 6, b.h - 6);
+    const hv = hash2(Math.round(b.x), Math.round(b.y), 7);
+    if (hv < 0.4) {
+      ctx.fillStyle = 'rgba(0,0,0,0.30)';
+      ctx.fillRect(b.x + 8, b.y + 8, 10, 8);
+      ctx.fillRect(b.x + b.w - 18, b.y + 10, 8, 8);
+    } else if (hv < 0.6) {
+      ctx.fillStyle = dusk ? '#4a6b2f' : '#588157';
+      ctx.fillRect(b.x + b.w * 0.25, b.y + b.h * 0.3, b.w * 0.4, b.h * 0.35);
+      ctx.fillStyle = dusk ? '#5d7f3a' : '#40916c';
+      ctx.beginPath();
+      ctx.arc(b.x + b.w * 0.35, b.y + b.h * 0.45, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(b.x + b.w * 0.6, b.y + b.h * 0.5, 4, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (hv < 0.75) {
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.fillRect(b.x + b.w / 2 - 10, b.y + b.h / 2 - 6, 20, 12);
+    }
+    // A door on the street side of houses.
+    if (b.style === 'house') {
+      ctx.fillStyle = '#2c3e50';
+      ctx.fillRect(b.x + b.w / 2 - 6, b.y + b.h - 12, 12, 12);
+    }
     const cols = Math.max(1, Math.floor(b.w / 22));
     const rows = b.style === 'warehouse' ? 1 : Math.max(1, Math.floor(b.h / 24));
     for (let cx = 0; cx < cols; cx++) {
       for (let cy = 0; cy < rows; cy++) {
-        if ((cx * 7 + cy * 3 + Math.floor(b.x)) % 3 === 0) continue;
+        const seedW = cx * 7 + cy * 3 + Math.floor(b.x);
+        if (seedW % 3 === 0) continue;
+        // A few windows burn warmer than the rest, so the facade is not a
+        // single flat grid of dots.
+        ctx.fillStyle = dark
+          ? (seedW % 8 === 0 ? '#ffb703' : '#ffe066')
+          : (seedW % 8 === 0 ? '#f4d58d' : '#d6eaf8');
         ctx.fillRect(b.x + 6 + cx * 22, b.y + 10 + cy * 24, 10, 12);
       }
     }
@@ -621,8 +835,8 @@ export function render(state, ctx, view) {
     ctx.restore();
   }
   // Cars, peds, gang, cops, heli, player.
-  for (const car of state.cars) drawCar(ctx, car, state.clock, dark, dusk);
-  for (const boat of state.boats) drawBoat(ctx, boat, state.clock);
+  for (const car of state.cars) drawCar(ctx, car, state.clock, dark, dusk, car.id === state.player.car);
+  for (const boat of state.boats) drawBoat(ctx, boat, state.clock, boat.id === state.player.boat);
   for (const ped of state.peds) drawPerson(ctx, ped.x, ped.y, ped.angle, ped.color, null, dusk);
   for (const g of state.gang) {
     drawPerson(ctx, g.x, g.y, Math.atan2(p.y - g.y, p.x - g.x), '#7b2d26', '!', dusk);
@@ -636,7 +850,7 @@ export function render(state, ctx, view) {
   }
   if (state.heli) drawHeli(ctx, state.heli, state);
   if (!state.player.car) {
-    drawPerson(ctx, p.x, p.y, p.angle, '#f1c40f', null, dusk);
+    drawPerson(ctx, p.x, p.y, p.angle, '#f1c40f', null, dusk, 1.5, true);
     // Aim line + crosshair when armed on foot.
     if (state.aim) {
       ctx.strokeStyle = 'rgba(255,255,255,0.5)';
@@ -806,30 +1020,51 @@ function drawHud(state, ctx, view) {
   for (let i = 0; i < 5; i++) stars += i < state.stars ? '★' : '☆';
   ctx.fillStyle = state.stars > 0 ? '#f1c40f' : 'rgba(255,255,255,0.5)';
   ctx.fillText(stars, w / 2, 40);
-  // District + mission timer + banner.
+  // District + mission timer + banner. The district sits at y=58 and the
+  // timer baseline at y=96 — a full line apart, and the timer uses a drawn
+  // clock icon instead of the ⏱ emoji, which renders oversized and used
+  // to collide with the district line above it.
   ctx.font = 'bold 15px sans-serif';
   ctx.fillStyle = '#fff';
   ctx.shadowColor = '#000';
   ctx.shadowBlur = 4;
-  ctx.fillText(districtAt(state, p.x, p.y), w / 2, 66);
+  ctx.fillText(districtAt(state, p.x, p.y), w / 2, 58);
   ctx.shadowBlur = 0;
   const stage = currentStage(state);
   const timerShown = (stage && stage.timeLimit) || (state.mission.active && state.mission.idx === 7);
+  const drawTimer = (label, urgent) => {
+    ctx.font = 'bold 18px sans-serif';
+    const tw = ctx.measureText(label).width;
+    const col = urgent ? '#e74c3c' : '#ffe066';
+    const total = 20 + tw;
+    const x0 = w / 2 - total / 2;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x0 + 9, 88, 9, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x0 + 9, 88);
+    ctx.lineTo(x0 + 9, 81);
+    ctx.moveTo(x0 + 9, 88);
+    ctx.lineTo(x0 + 14, 88);
+    ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.textAlign = 'left';
+    ctx.fillText(label, x0 + 20, 96);
+    ctx.textAlign = 'center';
+  };
   if (stage && stage.timeLimit) {
     const left = Math.max(0, Math.ceil(stage.timeLimit - state.mission.stageT));
-    ctx.font = 'bold 20px sans-serif';
-    ctx.fillStyle = left <= 15 ? '#e74c3c' : '#ffe066';
-    ctx.fillText(`⏱ ${left} dtk`, w / 2, 90);
+    drawTimer(`${left} dtk`, left <= 15);
   } else if (state.mission.active && state.mission.idx === 7) {
     const t = Math.floor(state.mission.timerT);
-    ctx.font = 'bold 20px sans-serif';
-    ctx.fillStyle = '#ffe066';
-    ctx.fillText(`⏱ ${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`, w / 2, 90);
+    drawTimer(`${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`, false);
   }
   if (state.bannerT > 0) {
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
     const bw = Math.min(w - 40, 560);
-    const by = timerShown ? 104 : 78;
+    const by = timerShown ? 112 : 78;
     roundRect(ctx, w / 2 - bw / 2, by, bw, 30, 8);
     ctx.fill();
     ctx.fillStyle = '#ffe066';
@@ -864,11 +1099,17 @@ function drawHud(state, ctx, view) {
     ctx.fillStyle = '#ffe066';
     ctx.fillText(`${car.name}${car.hp < 40 ? ' — RUSAK!' : ''}`, w - 122, h - 40);
   }
-  // Controls hint.
+  // Controls hint on a dark pill, inset from the edges so the bar is
+  // fully inside the frame and readable over bright ground.
   ctx.textAlign = 'left';
-  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  const hint = 'WASD gerak/kemudi · E curi mobil · Klik tembak · R isi peluru · N misi · H bantuan · ESC jeda';
   ctx.font = '11px sans-serif';
-  ctx.fillText('WASD gerak/kemudi · E curi mobil · Klik tembak · R isi peluru · N misi · H bantuan · ESC jeda', 12, h - 12);
+  const hw = ctx.measureText(hint).width;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  roundRect(ctx, 12, h - 30, hw + 20, 20, 8);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.fillText(hint, 22, h - 16);
   drawMinimap(state, ctx, view);
 }
 
